@@ -184,6 +184,7 @@ import android.app.INotificationManager;
 import android.app.ITransientNotification;
 import android.app.ITransientNotificationCallback;
 import android.app.IUriGrantsManager;
+import android.app.ActivityManager.RunningAppProcessInfo;
 import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.Notification.MessagingStyle;
@@ -403,6 +404,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
+
+import switchboard.ISwitchboardService;
 
 /** {@hide} */
 public class NotificationManagerService extends SystemService {
@@ -628,6 +631,7 @@ public class NotificationManagerService extends SystemService {
     private UserManagerInternal mUmInternal;
     private IPlatformCompat mPlatformCompat;
     private ShortcutHelper mShortcutHelper;
+    private ISwitchboardService mSwitchboardService;
     private PermissionHelper mPermissionHelper;
     private UsageStatsManagerInternal mUsageStatsManagerInternal;
     private TelecomManager mTelecomManager;
@@ -2549,6 +2553,9 @@ public class NotificationManagerService extends SystemService {
         mPostNotificationTrackerFactory = postNotificationTrackerFactory;
         mPlatformCompat = IPlatformCompat.Stub.asInterface(
                 ServiceManager.getService(Context.PLATFORM_COMPAT_SERVICE));
+
+        mSwitchboardService = ISwitchboardService.Stub.asInterface(
+                ServiceManager.getService("switchboardservice"));
 
         mStrongAuthTracker = new StrongAuthTracker(getContext());
         String[] extractorNames;
@@ -8718,6 +8725,24 @@ public class NotificationManagerService extends SystemService {
 
                     final StatusBarNotification n = r.getSbn();
                     final Notification notification = n.getNotification();
+
+                    final String pkg = n.getPackageName();
+                    Slog.d(TAG, "postNotification: pkg=" + pkg);
+                    try {
+                        List<RunningAppProcessInfo> runningAppProcessInfoList = mActivityManager.getRunningAppProcesses();
+                        if (runningAppProcessInfoList != null) {
+                            Slog.d(TAG, "Running app process info list size: " + runningAppProcessInfoList.size());
+                        } else {
+                            Slog.d(TAG, "RunningAppProcessInfo is null");
+                        }
+                        String result = mSwitchboardService.lookupNotification(
+                                r.isHidden() ? "hidden" : pkg,
+                                String.valueOf(notification.extras.get(Notification.EXTRA_TITLE)),
+                                String.valueOf(notification.extras.get(Notification.EXTRA_TEXT)));
+                    } catch (Exception e) {
+                        Slog.e(TAG, "Switchboard lookup failed", e);
+                    }
+
                     boolean isCallNotificationAndCorrectStyle = isCallNotification
                             && notification.isStyle(Notification.CallStyle.class);
 
@@ -8747,6 +8772,7 @@ public class NotificationManagerService extends SystemService {
 
                     int index = indexOfNotificationLocked(n.getKey());
                     if (index < 0) {
+                        Slog.d(TAG, "Adding notification " + n.getKey() + " to the list");
                         mNotificationList.add(r);
                         mUsageStats.registerPostedByApp(r);
                         mUsageStatsManagerInternal.reportNotificationPosted(r.getSbn().getOpPkg(),
