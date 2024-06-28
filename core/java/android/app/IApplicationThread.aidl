@@ -174,4 +174,6 @@ oneway interface IApplicationThread {
             in UiTranslationSpec uiTranslationSpec);
     void scheduleTimeoutService(IBinder token, int startId);
     void schedulePing(in RemoteCallback pong);
+    void getApplicationActivity(IBinder token, in RemoteCallback callback);
+    void findAndClickView(IBinder token, String viewId);
 }

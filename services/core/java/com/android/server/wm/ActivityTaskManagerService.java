@@ -239,6 +239,7 @@ import android.view.Display;
 import android.view.IRecentsAnimationRunner;
 import android.view.RemoteAnimationAdapter;
 import android.view.RemoteAnimationDefinition;
+import android.view.ViewRootImpl;
 import android.view.WindowManager;
 import android.window.BackAnimationAdapter;
 import android.window.BackNavigationInfo;
@@ -310,6 +311,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+
+import switchboard.ISwitchboardService;
 
 /**
  * System service for managing activities and their containers (task, displays,... ).
@@ -317,6 +321,8 @@ import java.util.Set;
  * {@hide}
  */
 public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
+    static final int TRANSACTION_getViewHierarchy = IBinder.FIRST_CALL_TRANSACTION + 1;
+    static final int TRANSACTION_findAndClickView = IBinder.FIRST_CALL_TRANSACTION + 2;
     private static final String GRAMMATICAL_GENDER_PROPERTY = "persist.sys.grammatical_gender";
     private static final String TAG = TAG_WITH_CLASS_NAME ? "ActivityTaskManagerService" : TAG_ATM;
     static final String TAG_ROOT_TASK = TAG + POSTFIX_ROOT_TASK;
@@ -401,6 +407,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
     RootWindowContainer mRootWindowContainer;
     WindowManagerService mWindowManager;
     private UserManagerService mUserManager;
+    private ISwitchboardService mSwitchboardService;
     private AppOpsManager mAppOpsManager;
     /** All active uids in the system. */
     final MirrorActiveUids mActiveUids = new MirrorActiveUids();
@@ -887,6 +894,52 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         }
     }
 
+    public void getViewHierarchy() {
+        CountDownLatch latch = new CountDownLatch(1);
+        RemoteCallback callback = new RemoteCallback(result -> {
+            String viewMap = result.getString("viewMap");
+            String coordMap = result.getString("coordMap");
+            try {
+                ISwitchboardService switchboardService = getSwitchboardService();
+                switchboardService.getViewHierarchy(viewMap, coordMap);
+            } catch (RemoteException e) {
+                Log.e("ActivityTaskManagerService", "Failed to get view hierarchy", e);
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            Task task = getTopDisplayFocusedRootTask();
+            if (task == null) {
+                latch.countDown();
+                return;
+            }
+            ActivityRecord topActivityRecord = task.getTopActivity();
+            topActivityRecord.app.getThread().getApplicationActivity(topActivityRecord.token, callback);
+            latch.await();  // This might throw InterruptedException
+        } catch (RemoteException e) {
+            Slog.e(TAG, "Failed to get view hierarchy", e);
+            latch.countDown();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();  // Preserve interrupt status
+            Slog.e(TAG, "Thread was interrupted while waiting", e);
+        }
+    }    
+
+    public void findAndClickView(String viewId) {
+        try {
+            Slog.d("FindAndClickView", "findAndClickView: " + viewId);
+            Task task = getTopDisplayFocusedRootTask();
+            if (task == null) {
+                return;
+            }
+            ActivityRecord topActivityRecord = task.getTopActivity();
+            topActivityRecord.app.getThread().findAndClickView(topActivityRecord.token, viewId);
+        } catch (RemoteException e) {
+            Slog.e(TAG, "Failed to find and click view", e);
+        }
+    }
+
     public void onInitPowerManagement() {
         synchronized (mGlobalLock) {
             mTaskSupervisor.initPowerManagement();
@@ -1073,6 +1126,14 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
 
     Context getUiContext() {
         return mUiContext;
+    }
+
+    ISwitchboardService getSwitchboardService() {
+        if (mSwitchboardService == null) {
+            IBinder b = ServiceManager.getService("switchboardservice");
+            mSwitchboardService = ISwitchboardService.Stub.asInterface(b);
+        }
+        return mSwitchboardService;
     }
 
     UserManagerService getUserManager() {
@@ -5612,6 +5673,16 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
     public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
             throws RemoteException {
         try {
+            Slog.d("ViewHierarchy", "onTransact " + code);
+            switch (code) {
+                case TRANSACTION_getViewHierarchy:
+                    getViewHierarchy();
+                    return true;
+                case TRANSACTION_findAndClickView:
+                    String viewId = data.readString();
+                    findAndClickView(viewId);
+                    return true;
+            }
             return super.onTransact(code, data, reply, flags);
         } catch (RuntimeException e) {
             throw logAndRethrowRuntimeExceptionOnTransact(TAG, e);

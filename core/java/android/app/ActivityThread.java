@@ -2121,6 +2121,32 @@ public final class ActivityThread extends ClientTransactionHandler
             args.arg6 = uiTranslationSpec;
             sendMessage(H.UPDATE_UI_TRANSLATION_STATE, args);
         }
+
+        public void getApplicationActivity(IBinder token, RemoteCallback callback) {
+            ActivityClientRecord activityClientRecord = mActivities.get(token);
+
+            if (activityClientRecord != null && activityClientRecord.activity != null) {
+                ViewRootImpl viewRoot = activityClientRecord.activity.getViewRootImpl();
+                Bundle result = new Bundle();
+                result.putString("viewMap", viewRoot.getViewHierarchyString().viewMap);
+                result.putString("coordMap", viewRoot.getViewHierarchyString().coordMap);
+                callback.sendResult(result);
+            } else {
+                Bundle errorResult = new Bundle();
+                errorResult.putString("error", "Activity not found");
+                callback.sendResult(errorResult);
+            }
+        }
+
+        public void findAndClickView(IBinder token, String viewId) {
+            Slog.d("FindAndClickView", "findAndClickView in thread: " + viewId);
+            ActivityClientRecord activityClientRecord = mActivities.get(token);
+
+            if (activityClientRecord != null && activityClientRecord.activity != null) {
+                ViewRootImpl viewRoot = activityClientRecord.activity.getViewRootImpl();
+                viewRoot.findAndClickView(viewId, null);
+            }
+        }
     }
 
     private @NonNull SafeCancellationTransport createSafeCancellationTransport(
