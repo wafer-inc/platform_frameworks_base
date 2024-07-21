@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 The Android Open Source Project
+ * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,18 +14,9 @@
  * limitations under the License.
  */
 
-package android.content;
-
-public class Intent {
-    public Intent(String action) {
-        throw new UnsupportedOperationException();
-    }
-
-    public Intent setAction(String action) {
-        throw new UnsupportedOperationException();
-    }
-
-    public Intent putExtra(String extra, int value) {
-        throw new UnsupportedOperationException();
-    }
-}
+/**
+ * Exclude from API surfaces
+ *
+ * @hide
+ */
+package com.android.internal.location;
