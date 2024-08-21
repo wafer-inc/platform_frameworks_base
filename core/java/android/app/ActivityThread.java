@@ -2169,18 +2169,19 @@ public final class ActivityThread extends ClientTransactionHandler
         }
 
         public void getApplicationActivity(IBinder token, RemoteCallback callback) {
-            ActivityClientRecord activityClientRecord = mActivities.get(token);
-
-            if (activityClientRecord != null && activityClientRecord.activity != null) {
-                ViewRootImpl viewRoot = activityClientRecord.activity.getViewRootImpl();
+            ActivityClientRecord r = mActivities.get(token);
+            if (r != null && r.activity != null) {
+                ViewRootImpl viewRoot = r.activity.getViewRootImpl();
+                ViewRootImpl.ViewHierarchyData hierarchyString = viewRoot.getViewHierarchyString();
+                
                 Bundle result = new Bundle();
-                result.putString("viewMap", viewRoot.getViewHierarchyString().viewMap);
-                result.putString("coordMap", viewRoot.getViewHierarchyString().coordMap);
+                result.putString("viewMap", hierarchyString.viewMap);
+                result.putString("coordMap", hierarchyString.coordMap);
                 callback.sendResult(result);
             } else {
-                Bundle errorResult = new Bundle();
-                errorResult.putString("error", "Activity not found");
-                callback.sendResult(errorResult);
+                Bundle result = new Bundle();
+                result.putString("error", "Activity not found");
+                callback.sendResult(result);
             }
         }
 

@@ -316,6 +316,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 import switchboard.ISwitchboardService;
 
@@ -897,37 +901,29 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         }
     }
 
-    public void getViewHierarchy() {
-        CountDownLatch latch = new CountDownLatch(1);
+    public String[] getViewHierarchy() throws RemoteException {
+        Task task = getTopDisplayFocusedRootTask();
+        if (task == null) {
+            return null;
+        }
+        ActivityRecord topActivityRecord = task.getTopActivity();
+        
+        CompletableFuture<String[]> future = new CompletableFuture<>();
+        
         RemoteCallback callback = new RemoteCallback(result -> {
             String viewMap = result.getString("viewMap");
             String coordMap = result.getString("coordMap");
-            try {
-                ISwitchboardService switchboardService = getSwitchboardService();
-                switchboardService.getViewHierarchy(viewMap, coordMap);
-            } catch (RemoteException e) {
-                Log.e("ActivityTaskManagerService", "Failed to get view hierarchy", e);
-            } finally {
-                latch.countDown();
-            }
+            future.complete(new String[]{viewMap, coordMap});
         });
+
         try {
-            Task task = getTopDisplayFocusedRootTask();
-            if (task == null) {
-                latch.countDown();
-                return;
-            }
-            ActivityRecord topActivityRecord = task.getTopActivity();
             topActivityRecord.app.getThread().getApplicationActivity(topActivityRecord.token, callback);
-            latch.await();  // This might throw InterruptedException
-        } catch (RemoteException e) {
-            Slog.e(TAG, "Failed to get view hierarchy", e);
-            latch.countDown();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();  // Preserve interrupt status
-            Slog.e(TAG, "Thread was interrupted while waiting", e);
+            return future.get(5, TimeUnit.SECONDS); // Wait for the result with a timeout
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            Log.e("ActivityTaskManagerService", "Failed to get view hierarchy", e);
+            throw new RemoteException("Failed to get view hierarchy: " + e.getMessage());
         }
-    }    
+    }
 
     public void findAndClickView(String viewId) {
         try {
