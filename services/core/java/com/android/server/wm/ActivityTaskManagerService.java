@@ -901,10 +901,11 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         }
     }
 
-    public String[] getViewHierarchy() throws RemoteException {
+    public void getViewHierarchy(Parcel reply) throws RemoteException {
         Task task = getTopDisplayFocusedRootTask();
         if (task == null) {
-            return null;
+            reply.writeInt(0);
+            return;
         }
         ActivityRecord topActivityRecord = task.getTopActivity();
         
@@ -918,10 +919,17 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
 
         try {
             topActivityRecord.app.getThread().getApplicationActivity(topActivityRecord.token, callback);
-            return future.get(5, TimeUnit.SECONDS); // Wait for the result with a timeout
+            String[] result = future.get(5, TimeUnit.SECONDS);
+            reply.writeNoException();
+            reply.writeStringArray(result);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            Log.e("ActivityTaskManagerService", "Failed to get view hierarchy", e);
-            throw new RemoteException("Failed to get view hierarchy: " + e.getMessage());
+            Slog.e(TAG, "Failed to get view hierarchy", e);
+            reply.writeInt(2);
+            reply.writeString("Failed to get view hierarchy: " + e.getMessage());
+        } catch (RemoteException e) {
+            Slog.e(TAG, "Failed to get view hierarchy: " + e.getMessage());
+            reply.writeInt(2);
+            reply.writeString("RemoteException: " + e.getMessage());
         }
     }
 
@@ -5725,7 +5733,8 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
             Slog.d("ViewHierarchy", "onTransact " + code);
             switch (code) {
                 case TRANSACTION_getViewHierarchy:
-                    getViewHierarchy();
+                    getViewHierarchy(reply);
+                    reply.writeNoException();
                     return true;
                 case TRANSACTION_findAndClickView:
                     String viewId = data.readString();
