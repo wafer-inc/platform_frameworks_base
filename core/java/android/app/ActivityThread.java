@@ -2171,12 +2171,12 @@ public final class ActivityThread extends ClientTransactionHandler
         public void getApplicationActivity(IBinder token, RemoteCallback callback) {
             ActivityClientRecord r = mActivities.get(token);
             if (r != null && r.activity != null) {
+                Window parentWindow = r.activity.getWindow();
                 ViewRootImpl viewRoot = r.activity.getViewRootImpl();
-                ViewRootImpl.ViewHierarchyData hierarchyString = viewRoot.getViewHierarchyString();
+                String hierarchyString = viewRoot.getViewHierarchyTreeString();
                 
                 Bundle result = new Bundle();
-                result.putString("viewMap", hierarchyString.viewMap);
-                result.putString("coordMap", hierarchyString.coordMap);
+                result.putString("viewMap", hierarchyString);
                 callback.sendResult(result);
             } else {
                 Bundle result = new Bundle();

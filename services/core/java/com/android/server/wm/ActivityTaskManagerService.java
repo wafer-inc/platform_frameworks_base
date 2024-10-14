@@ -909,19 +909,18 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         }
         ActivityRecord topActivityRecord = task.getTopActivity();
         
-        CompletableFuture<String[]> future = new CompletableFuture<>();
+        CompletableFuture<String> future = new CompletableFuture<>();
         
         RemoteCallback callback = new RemoteCallback(result -> {
             String viewMap = result.getString("viewMap");
-            String coordMap = result.getString("coordMap");
-            future.complete(new String[]{viewMap, coordMap});
+            future.complete(viewMap);
         });
 
         try {
             topActivityRecord.app.getThread().getApplicationActivity(topActivityRecord.token, callback);
-            String[] result = future.get(5, TimeUnit.SECONDS);
+            String result = future.get(5, TimeUnit.SECONDS);
             reply.writeNoException();
-            reply.writeStringArray(result);
+            reply.writeString(result);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Slog.e(TAG, "Failed to get view hierarchy", e);
             reply.writeInt(2);

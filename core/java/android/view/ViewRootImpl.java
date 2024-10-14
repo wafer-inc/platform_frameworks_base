@@ -185,6 +185,7 @@ import android.util.IndentingPrintWriter;
 import android.util.Log;
 import android.util.LongArray;
 import android.util.MergedConfiguration;
+import android.util.Pair;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.util.TimeUtils;
@@ -262,6 +263,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedList;
 import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Queue;
@@ -9735,125 +9737,169 @@ public final class ViewRootImpl implements ViewParent,
         return false;
     }
 
-    public class ViewHierarchyData {
-        public String viewMap;
-        public String coordMap;
-    }
-
-    @UnsupportedAppUsage
-    public ViewHierarchyData getViewHierarchyString() {
-        ViewHierarchyData data = new ViewHierarchyData();
-        JSONArray viewMap = new JSONArray();
-        JSONObject coordMap = new JSONObject();
-
-        getViewHierarchyJSON(mView, viewMap, coordMap, 0);
-
-        data.viewMap = viewMap.toString();
-        data.coordMap = coordMap.toString();
-        return data;
-    }
-
     private String getViewIdentifier(View view) {
         return Integer.toHexString(view.hashCode());
     }
 
-    private void getViewHierarchyJSON(View view, JSONArray viewMap, JSONObject coordMap, int depth) {
-        String viewId = getViewIdentifier(view);
+    private static class Node {
+        private static class BoundsInScreen {
+            private int left;
+            private int top;
+            private int right;
+            private int bottom;
+        }
+        private BoundsInScreen bounds_in_screen;
+        private String class_name;
+        private String content_description;
+        private String hint_text;
+        private String text;
+        private Boolean is_checkable;
+        private Boolean is_clickable;
+        private Boolean is_editable;
+        private Boolean is_focusable;
+        private Boolean is_focused;
+        private Boolean is_long_clickable;
+        private Boolean is_password;
+        private Boolean is_scrollable;
+        private Boolean is_selected;
+        private int depth;
+        private String tooltip_text;
+    }
 
-        int width = view.getWidth();
-        int height = view.getHeight();
+    private List<Node> getViewHierarchyTree() {
+        List<Node> nodes = new ArrayList<>();
+        Queue<Pair<View, Integer>> queue = new LinkedList<>();
+        queue.offer(new Pair<>(mView, 0));
 
-        int[] locationOnScreen = new int[2];
-        view.getLocationOnScreen(locationOnScreen);
+        while (!queue.isEmpty()) {
+            Pair<View, Integer> pair = queue.poll();
+            View view = pair.first;
+            int depth = pair.second;
 
-        int[][] coordinates = new int[4][2];
-        coordinates[0][0] = locationOnScreen[0];
-        coordinates[0][1] = locationOnScreen[1];
-        coordinates[1][0] = locationOnScreen[0] + width;
-        coordinates[1][1] = locationOnScreen[1];
-        coordinates[2][0] = locationOnScreen[0] + width;
-        coordinates[2][1] = locationOnScreen[1] + height;
-        coordinates[3][0] = locationOnScreen[0];
-        coordinates[3][1] = locationOnScreen[1] + height;
-
-        int[] center = new int[2];
-
-        center[0] = locationOnScreen[0] + width / 2;
-        center[1] = locationOnScreen[1] + height / 2;
-
-        String content = "";
-        String description = "";
-        String hint = "";
-        String interaction = "";
-
-        boolean shouldInclude = false;
-
-        try {
-            if (view.isClickable()) {
-                interaction = "clickable";
-                shouldInclude = true;
-            } else {
-                interaction = "none";
-            }
-
-            if (view.getContentDescription() != null) {
-                description = view.getContentDescription().toString();
-                shouldInclude = true;
-            }
+            Node node = new Node();
+            node.depth = depth;
+            node.class_name = view.getClass().getName();
 
             AccessibilityNodeInfo nodeInfo = view.createAccessibilityNodeInfo();
+            if (nodeInfo != null) {
+                Rect bounds = new Rect();
+                nodeInfo.getBoundsInScreen(bounds);
+                node.bounds_in_screen = new Node.BoundsInScreen();
+                node.bounds_in_screen.left = bounds.left;
+                node.bounds_in_screen.top = bounds.top;
+                node.bounds_in_screen.right = bounds.right;
+                node.bounds_in_screen.bottom = bounds.bottom;
 
-            CharSequence text = nodeInfo.getText();
-            if (text != null) {
-                content = text.toString();
-                shouldInclude = true;
-                Slog.d("FindAndClickView", "Text: " + content);
-            }
-
-            CharSequence hintText = nodeInfo.getHintText();
-            if (hintText != null) {
-                hint = nodeInfo.getHintText().toString();
-                shouldInclude = true;
-            }
-
-            nodeInfo.recycle();
-
-            if (shouldInclude) {
-                JSONArray locationArray = new JSONArray(center);
-                coordMap.put(viewId, locationArray);
-
-                JSONObject viewObject = new JSONObject();
-                viewObject.put("id", viewId);
-                if (interaction != "") {
-                    viewObject.put("interaction", interaction);
+                CharSequence contentDescription = nodeInfo.getContentDescription();
+                if (contentDescription != null) {
+                    node.content_description = contentDescription.toString();
                 }
-                if (content != "")
-                    viewObject.put("content", content);
-                if (description != "")
-                    viewObject.put("description", description);
-                if (hint != "")
-                    viewObject.put("hint", hint);
-                if (view.getClass().getSimpleName() != null)
-                    viewObject.put("type", view.getClass().getSimpleName());
-                if (view.isFocused()) {
-                    viewMap.put(viewObject);
-                } else {
-                    viewMap.put(viewObject);
+
+                CharSequence hintText = nodeInfo.getHintText();
+                if (hintText != null) {
+                    node.hint_text = hintText.toString();
+                }
+
+                CharSequence text = nodeInfo.getText();
+                if (text != null) {
+                    node.text = text.toString();
+                }
+
+                node.is_checkable = nodeInfo.isCheckable();
+                node.is_clickable = nodeInfo.isClickable();
+                node.is_editable = nodeInfo.isEditable();
+                node.is_focusable = nodeInfo.isFocusable();
+                node.is_focused = nodeInfo.isFocused();
+                node.is_long_clickable = nodeInfo.isLongClickable();
+                node.is_password = nodeInfo.isPassword();
+                node.is_scrollable = nodeInfo.isScrollable();
+                node.is_selected = nodeInfo.isSelected();
+
+                CharSequence tooltipText = nodeInfo.getTooltipText();
+                if (tooltipText != null) {
+                    node.tooltip_text = tooltipText.toString();
+                }
+
+                nodeInfo.recycle();
+            }
+
+            nodes.add(node);
+
+            if (view instanceof ViewGroup) {
+                ViewGroup viewGroup = (ViewGroup) view;
+                final int childCount = viewGroup.getChildCount();
+                for (int i = 0; i < childCount; i++) {
+                    View child = viewGroup.getChildAt(i);
+                    queue.offer(new Pair<>(child, depth + 1));
                 }
             }
-        } catch (Exception e) {
-            Log.w("ViewInspection", "Failed to get view JSON", e);
         }
 
-        if (view instanceof ViewGroup) {
-            ViewGroup viewGroup = (ViewGroup) view;
-            final int childCount = viewGroup.getChildCount();
-            for (int i = 0; i < childCount; i++) {
-                View child = viewGroup.getChildAt(i);
-                getViewHierarchyJSON(child, viewMap, coordMap, depth + 1);
-            }
-        }
+        return nodes;
     }
+
+    @UnsupportedAppUsage
+    public String getViewHierarchyTreeString() {
+        List<Node> nodes = getViewHierarchyTree();
+        StringBuilder builder = new StringBuilder();
+        builder.append("tree {\n");
+        for (Node node : nodes) {
+            builder.append("  nodes {\n");
+            if (node.bounds_in_screen != null) {
+                builder.append("    bounds_in_screen {\n");
+                builder.append("      left: ").append(node.bounds_in_screen.left).append("\n");
+                builder.append("      top: ").append(node.bounds_in_screen.top).append("\n");
+                builder.append("      right: ").append(node.bounds_in_screen.right).append("\n");
+                builder.append("      bottom: ").append(node.bounds_in_screen.bottom).append("\n");
+                builder.append("    }\n");
+            }
+
+            builder.append("    class_name: \"").append(node.class_name).append("\"\n");
+            if (node.content_description != null) {
+                builder.append("    content_description: \"").append(node.content_description).append("\"\n");
+            }
+            if (node.hint_text != null) {
+                builder.append("    hint_text: \"").append(node.hint_text).append("\"\n");
+            }
+            if (node.text != null) {
+                builder.append("    text: \"").append(node.text).append("\"\n");
+            }
+            if (node.is_checkable) {
+                builder.append("    is_checkable: ").append(node.is_checkable).append("\n");
+            }
+            if (node.is_clickable) {
+                builder.append("    is_clickable: ").append(node.is_clickable).append("\n");
+            }
+            if (node.is_editable) {
+                builder.append("    is_editable: ").append(node.is_editable).append("\n");
+            }
+            if (node.is_focusable) {
+                builder.append("    is_focusable: ").append(node.is_focusable).append("\n");
+            }
+            if (node.is_focused) {
+                builder.append("    is_focused: ").append(node.is_focused).append("\n");
+            }
+            if (node.is_long_clickable) {
+                builder.append("    is_long_clickable: ").append(node.is_long_clickable).append("\n");
+            }
+            if (node.is_password) {
+                builder.append("    is_password: ").append(node.is_password).append("\n");
+            }
+            if (node.is_scrollable) {
+                builder.append("    is_scrollable: ").append(node.is_scrollable).append("\n");
+            }
+            if (node.is_selected) {
+                builder.append("    is_selected: ").append(node.is_selected).append("\n");
+            }
+            if (node.depth > 0) {
+                builder.append("    depth: ").append(node.depth).append("\n");
+            }
+            builder.append("  }\n");
+        }
+        builder.append("}\n");
+        return builder.toString();
+    }
+    
 
     static final class GfxInfo {
         public int viewCount;
