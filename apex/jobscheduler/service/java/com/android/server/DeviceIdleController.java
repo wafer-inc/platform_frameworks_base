@@ -109,6 +109,7 @@ import com.android.modules.expresslog.Counter;
 import com.android.server.am.BatteryStatsService;
 import com.android.server.deviceidle.ConstraintController;
 import com.android.server.deviceidle.DeviceIdleConstraintTracker;
+import com.android.server.deviceidle.Flags;
 import com.android.server.deviceidle.IDeviceIdleConstraint;
 import com.android.server.deviceidle.TvConstraintController;
 import com.android.server.net.NetworkPolicyManagerInternal;
@@ -2559,7 +2560,7 @@ public class DeviceIdleController extends SystemService
         }
 
         boolean isLocationPrefetchEnabled() {
-            return mContext.getResources().getBoolean(
+            return !Flags.removeIdleLocation() && mContext.getResources().getBoolean(
                    com.android.internal.R.bool.config_autoPowerModePrefetchLocation);
         }
 
@@ -2628,8 +2629,13 @@ public class DeviceIdleController extends SystemService
             for (int i=0; i<allowPowerExceptIdle.size(); i++) {
                 String pkg = allowPowerExceptIdle.valueAt(i);
                 try {
+                    // On some devices (eg. HSUM), some apps may
+                    // be not be pre-installed on user 0, but may be
+                    // pre-installed on FULL users. Look for pre-installed system
+                    // apps across all users to make sure they're properly
+                    // allowlisted.
                     ApplicationInfo ai = pm.getApplicationInfo(pkg,
-                            PackageManager.MATCH_SYSTEM_ONLY);
+                            PackageManager.MATCH_ANY_USER | PackageManager.MATCH_SYSTEM_ONLY);
                     int appid = UserHandle.getAppId(ai.uid);
                     mPowerSaveWhitelistAppsExceptIdle.put(ai.packageName, appid);
                     mPowerSaveWhitelistSystemAppIdsExceptIdle.put(appid, true);
@@ -2640,8 +2646,13 @@ public class DeviceIdleController extends SystemService
             for (int i=0; i<allowPower.size(); i++) {
                 String pkg = allowPower.valueAt(i);
                 try {
+                    // On some devices (eg. HSUM), some apps may
+                    // be not be pre-installed on user 0, but may be
+                    // pre-installed on FULL users. Look for pre-installed system
+                    // apps across all users to make sure they're properly
+                    // allowlisted.
                     ApplicationInfo ai = pm.getApplicationInfo(pkg,
-                            PackageManager.MATCH_SYSTEM_ONLY);
+                            PackageManager.MATCH_ANY_USER | PackageManager.MATCH_SYSTEM_ONLY);
                     int appid = UserHandle.getAppId(ai.uid);
                     // These apps are on both the whitelist-except-idle as well
                     // as the full whitelist, so they apply in all cases.
@@ -3557,7 +3568,7 @@ public class DeviceIdleController extends SystemService
             Slog.i(TAG, "becomeActiveLocked, reason=" + activeReason
                     + ", changeLightIdle=" + changeLightIdle);
         }
-        if (mState != STATE_ACTIVE || mLightState != STATE_ACTIVE) {
+        if (mState != STATE_ACTIVE || mLightState != LIGHT_STATE_ACTIVE) {
             moveToStateLocked(STATE_ACTIVE, activeReason);
             mInactiveTimeout = newInactiveTimeout;
             resetIdleManagementLocked();

@@ -170,7 +170,6 @@ public class PersistentDataBlockService extends SystemService {
     static final int MAX_DATA_BLOCK_SIZE = 1024 * 100;
 
     public static final int DIGEST_SIZE_BYTES = 32;
-    private static final String OEM_UNLOCK_PROP = "sys.oem_unlock_allowed";
     private static final String FLASH_LOCK_PROP = "ro.boot.flash.locked";
     private static final String FLASH_LOCK_LOCKED = "1";
     private static final String FLASH_LOCK_UNLOCKED = "0";
@@ -274,11 +273,7 @@ public class PersistentDataBlockService extends SystemService {
             enforceChecksumValidity();
             if (mFrpEnforced) {
                 automaticallyDeactivateFrpIfPossible();
-                setOemUnlockEnabledProperty(doGetOemUnlockEnabled());
-                // Set the SECURE_FRP_MODE flag, for backward compatibility with clients who use it.
-                // They should switch to calling #isFrpActive().
-                Settings.Global.putInt(mContext.getContentResolver(),
-                        Settings.Global.SECURE_FRP_MODE, mFrpActive ? 1 : 0);
+                setOldSettingForBackworkCompatibility(mFrpActive);
             } else {
                 formatIfOemUnlockEnabled();
             }
@@ -292,8 +287,17 @@ public class PersistentDataBlockService extends SystemService {
         mInitDoneSignal.countDown();
     }
 
-    private void setOemUnlockEnabledProperty(boolean oemUnlockEnabled) {
-        setProperty(OEM_UNLOCK_PROP, oemUnlockEnabled ? "1" : "0");
+    private void setOldSettingForBackworkCompatibility(boolean isActive) {
+        // Set the SECURE_FRP_MODE flag, for backward compatibility with clients who use it.
+        // They should switch to calling #isFrpActive().  Clear calling ID since this can happen
+        // during an app call.
+        final long callingId = Binder.clearCallingIdentity();
+        try {
+            Settings.Global.putInt(mContext.getContentResolver(),
+                    Settings.Global.SECURE_FRP_MODE, isActive ? 1 : 0);
+        } finally {
+            Binder.restoreCallingIdentity(callingId);
+        }
     }
 
     @Override
@@ -331,7 +335,6 @@ public class PersistentDataBlockService extends SystemService {
                 formatPartitionLocked(true);
             }
         }
-        setOemUnlockEnabledProperty(enabled);
     }
 
     private void enforceOemUnlockReadPermission() {
@@ -628,6 +631,7 @@ public class PersistentDataBlockService extends SystemService {
                 Slog.w(TAG, "Upgrading from Android 14 or lower, defaulting FRP secret");
                 writeFrpMagicAndDefaultSecret();
                 mFrpActive = false;
+                setOldSettingForBackworkCompatibility(mFrpActive);
                 return true;
             }
 
@@ -699,6 +703,7 @@ public class PersistentDataBlockService extends SystemService {
     void activateFrp() {
         synchronized (mLock) {
             mFrpActive = true;
+            setOldSettingForBackworkCompatibility(mFrpActive);
         }
     }
 
@@ -740,6 +745,7 @@ public class PersistentDataBlockService extends SystemService {
         if (MessageDigest.isEqual(secret, partitionSecret)) {
             mFrpActive = false;
             Slog.i(TAG, "FRP secret matched, FRP deactivated.");
+            setOldSettingForBackworkCompatibility(mFrpActive);
             return true;
         } else {
             Slog.e(TAG,
@@ -795,15 +801,7 @@ public class PersistentDataBlockService extends SystemService {
             channel.force(true);
         } catch (IOException e) {
             Slog.e(TAG, "unable to access persistent partition", e);
-            return;
-        } finally {
-            setOemUnlockEnabledProperty(enabled);
         }
-    }
-
-    @VisibleForTesting
-    void setProperty(String name, String value) {
-        SystemProperties.set(name, value);
     }
 
     private boolean doGetOemUnlockEnabled() {
@@ -1315,6 +1313,7 @@ public class PersistentDataBlockService extends SystemService {
         public boolean deactivateFactoryResetProtectionWithoutSecret() {
             synchronized (mLock) {
                 mFrpActive = false;
+                setOldSettingForBackworkCompatibility(/* isActive */ mFrpActive);
             }
             return true;
         }

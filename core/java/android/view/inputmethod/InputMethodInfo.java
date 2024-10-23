@@ -54,6 +54,7 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -431,6 +432,14 @@ public final class InputMethodInfo implements Parcelable {
      * @hide
      */
     public InputMethodInfo(InputMethodInfo source) {
+        this(source, Collections.emptyList());
+    }
+
+    /**
+     * @hide
+     */
+    public InputMethodInfo(@NonNull InputMethodInfo source,
+            @NonNull List<InputMethodSubtype> additionalSubtypes) {
         mId = source.mId;
         mSettingsActivityName = source.mSettingsActivityName;
         mLanguageSettingsActivityName = source.mLanguageSettingsActivityName;
@@ -445,7 +454,19 @@ public final class InputMethodInfo implements Parcelable {
         mIsVrOnly = source.mIsVrOnly;
         mIsVirtualDeviceOnly = source.mIsVirtualDeviceOnly;
         mService = source.mService;
-        mSubtypes = source.mSubtypes;
+        if (additionalSubtypes.isEmpty()) {
+            mSubtypes = source.mSubtypes;
+        } else {
+            final ArrayList<InputMethodSubtype> subtypes = source.mSubtypes.toList();
+            final int additionalSubtypeCount = additionalSubtypes.size();
+            for (int i = 0; i < additionalSubtypeCount; ++i) {
+                final InputMethodSubtype additionalSubtype = additionalSubtypes.get(i);
+                if (!subtypes.contains(additionalSubtype)) {
+                    subtypes.add(additionalSubtype);
+                }
+            }
+            mSubtypes = new InputMethodSubtypeArray(subtypes);
+        }
         mHandledConfigChanges = source.mHandledConfigChanges;
         mSupportsStylusHandwriting = source.mSupportsStylusHandwriting;
         mSupportsConnectionlessStylusHandwriting = source.mSupportsConnectionlessStylusHandwriting;
@@ -839,7 +860,7 @@ public final class InputMethodInfo implements Parcelable {
      * <p>e.g.<pre><code>startActivity(createStylusHandwritingSettingsActivityIntent());</code>
      * </pre></p>
      *
-     * @attr ref R.styleable#InputMethod_stylusHandwritingSettingsActivity
+     * @attr ref android.R.styleable#InputMethod_stylusHandwritingSettingsActivity
      * @see #getSettingsActivity()
      * @see #supportsStylusHandwriting()
      */
@@ -865,7 +886,7 @@ public final class InputMethodInfo implements Parcelable {
      * the IME language settings activity.</p>
      * <p>e.g.<pre><code>startActivity(createImeLanguageSettingsActivityIntent());</code></pre></p>
      *
-     * @attr ref R.styleable#InputMethod_languageSettingsActivity
+     * @attr ref android.R.styleable#InputMethod_languageSettingsActivity
      */
     @FlaggedApi(android.view.inputmethod.Flags.FLAG_IME_SWITCHER_REVAMP)
     @Nullable
@@ -900,6 +921,8 @@ public final class InputMethodInfo implements Parcelable {
                 + Integer.toHexString(mIsDefaultResId));
         pw.println(prefix + "Service:");
         mService.dump(pw, prefix + "  ");
+        pw.println(prefix + "InputMethodSubtype array: count=" + mSubtypes.getCount());
+        mSubtypes.dump(pw, prefix + "  ");
     }
 
     @Override

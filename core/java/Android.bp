@@ -19,9 +19,50 @@ filegroup {
     srcs: [
         "**/*.java",
         "**/*.aidl",
+        ":systemfeatures-gen-srcs",
         ":framework-nfc-non-updatable-sources",
+        ":ranging_stack_mock_initializer",
+    ],
+    exclude_srcs: [
+        "android/ranging/**/*.java",
     ],
     visibility: ["//frameworks/base"],
+}
+
+//Mock to allow service registry for ranging stack.
+//TODO(b/331206299): Remove this after RELEASE_RANGING_STACK is ramped up to next.
+soong_config_module_type {
+    name: "ranging_stack_framework_mock_init",
+    module_type: "genrule",
+    config_namespace: "bootclasspath",
+    bool_variables: [
+        "release_ranging_stack",
+    ],
+    properties: [
+        "srcs",
+        "cmd",
+        "out",
+    ],
+}
+
+// The actual RangingFrameworkInitializer is present in packages/modules/Uwb/ranging/framework.
+// Mock RangingFrameworkInitializer does nothing and allows to successfully build
+// SystemServiceRegistry after registering for system service in SystemServiceRegistry both with
+// and without build flag RELEASE_RANGING_STACK enabled.
+ranging_stack_framework_mock_init {
+    name: "ranging_stack_mock_initializer",
+    soong_config_variables: {
+        release_ranging_stack: {
+            cmd: "touch $(out)",
+            // Adding an empty file as out is mandatory.
+            out: ["android/ranging/empty_ranging_fw.txt"],
+            conditions_default: {
+                srcs: ["android/ranging/mock/RangingFrameworkInitializer.java"],
+                cmd: "mkdir -p android/ranging/; cp $(in) $(out);",
+                out: ["android/ranging/RangingFrameworkInitializer.java"],
+            },
+        },
+    },
 }
 
 aidl_library {
@@ -135,13 +176,35 @@ filegroup {
     srcs: [
         "android/os/Temperature.aidl",
         "android/os/CoolingDevice.aidl",
-        "android/os/IHintManager.aidl",
-        "android/os/IHintSession.aidl",
         "android/os/IThermalEventListener.aidl",
         "android/os/IThermalStatusListener.aidl",
         "android/os/IThermalService.aidl",
         "android/os/IPowerManager.aidl",
         "android/os/IWakeLockCallback.aidl",
+    ],
+}
+
+aidl_interface {
+    name: "android.os.hintmanager_aidl",
+    srcs: [
+        "android/os/IHintManager.aidl",
+        "android/os/IHintSession.aidl",
+    ],
+    unstable: true,
+    backend: {
+        java: {
+            sdk_version: "module_current",
+            enabled: true,
+        },
+        cpp: {
+            enabled: false,
+        },
+        ndk: {
+            enabled: true,
+        },
+    },
+    imports: [
+        "android.hardware.power-V5",
     ],
 }
 
@@ -575,3 +638,29 @@ java_library {
 }
 
 // protolog end
+
+// Whether to enable read-only system feature codegen.
+gen_readonly_feature_apis = select(release_flag("RELEASE_USE_SYSTEM_FEATURE_BUILD_FLAGS"), {
+    true: "true",
+    false: "false",
+    default: "false",
+})
+
+// Generates com.android.internal.pm.RoSystemFeatures, optionally compiling in
+// details about fixed system features defined by build flags. When disabled,
+// the APIs are simply passthrough stubs with no meaningful side effects.
+genrule {
+    name: "systemfeatures-gen-srcs",
+    cmd: "$(location systemfeatures-gen-tool) com.android.internal.pm.RoSystemFeatures " +
+        // --readonly=false (default) makes the codegen an effective no-op passthrough API.
+        " --readonly=" + gen_readonly_feature_apis +
+        // For now, only export "android.hardware.type.*" system features APIs.
+        // TODO(b/203143243): Use an intermediate soong var that aggregates all declared
+        // RELEASE_SYSTEM_FEATURE_* declarations into a single arg.
+        " --feature-apis=AUTOMOTIVE,WATCH,TELEVISION,EMBEDDED,PC" +
+        " > $(out)",
+    out: [
+        "RoSystemFeatures.java",
+    ],
+    tools: ["systemfeatures-gen-tool"],
+}

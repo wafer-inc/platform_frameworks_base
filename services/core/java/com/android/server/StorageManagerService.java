@@ -107,6 +107,7 @@ import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.storage.DiskInfo;
+import android.os.storage.ICeStorageLockEventListener;
 import android.os.storage.IObbActionListener;
 import android.os.storage.IStorageEventListener;
 import android.os.storage.IStorageManager;
@@ -139,6 +140,7 @@ import android.util.TimeUtils;
 import android.util.Xml;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IAppOpsService;
 import com.android.internal.content.PackageMonitor;
 import com.android.internal.os.AppFuseMount;
@@ -184,6 +186,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -601,6 +604,9 @@ class StorageManagerService extends IStorageManager.Stub
     // Not guarded by lock, always used on the ActivityManager thread
     private final SparseArray<PackageMonitor> mPackageMonitorsForUser = new SparseArray<>();
 
+    /** List of listeners registered for ce storage callbacks */
+    private final CopyOnWriteArrayList<ICeStorageLockEventListener>
+            mCeStorageEventCallbacks = new CopyOnWriteArrayList<>();
 
     class ObbState implements IBinder.DeathRecipient {
         public ObbState(String rawPath, String canonicalPath, int callingUid,
@@ -2732,7 +2738,8 @@ class StorageManagerService extends IStorageManager.Stub
         boolean smartIdleMaintEnabled = DeviceConfig.getBoolean(
             DeviceConfig.NAMESPACE_STORAGE_NATIVE_BOOT,
             "smart_idle_maint_enabled",
-            DEFAULT_SMART_IDLE_MAINT_ENABLED);
+                DEFAULT_SMART_IDLE_MAINT_ENABLED)
+                && !SystemProperties.getBoolean("ro.boot.zufs_provisioned", false);
         if (smartIdleMaintEnabled) {
             mLifetimePercentThreshold = DeviceConfig.getInt(
                 DeviceConfig.NAMESPACE_STORAGE_NATIVE_BOOT,
@@ -3313,6 +3320,11 @@ class StorageManagerService extends IStorageManager.Stub
 
         synchronized (mLock) {
             mCeUnlockedUsers.remove(userId);
+        }
+        if (android.os.Flags.allowPrivateProfile()
+                && android.multiuser.Flags.enablePrivateSpaceFeatures()
+                && android.multiuser.Flags.enableBiometricsToUnlockPrivateSpace()) {
+            dispatchCeStorageLockedEvent(userId);
         }
     }
 
@@ -3969,7 +3981,7 @@ class StorageManagerService extends IStorageManager.Stub
                     if (resUuids.contains(rec.fsUuid)) continue;
 
                     // Treat as recent if mounted within the last week
-                    if (rec.lastSeenMillis > 0 && rec.lastSeenMillis < lastWeek) {
+                    if (rec.lastSeenMillis > 0 && rec.lastSeenMillis >= lastWeek) {
                         final StorageVolume userVol = rec.buildStorageVolume(mContext);
                         res.add(userVol);
                         resUuids.add(userVol.getUuid());
@@ -4579,6 +4591,18 @@ class StorageManagerService extends IStorageManager.Stub
         return StorageManager.MOUNT_MODE_EXTERNAL_NONE;
     }
 
+    @VisibleForTesting
+    CopyOnWriteArrayList<ICeStorageLockEventListener> getCeStorageEventCallbacks() {
+        return mCeStorageEventCallbacks;
+    }
+
+    @VisibleForTesting
+    void dispatchCeStorageLockedEvent(int userId) {
+        for (ICeStorageLockEventListener listener: mCeStorageEventCallbacks) {
+            listener.onStorageLocked(userId);
+        }
+    }
+
     private static class Callbacks extends Handler {
         private static final int MSG_STORAGE_STATE_CHANGED = 1;
         private static final int MSG_VOLUME_STATE_CHANGED = 2;
@@ -5063,6 +5087,24 @@ class StorageManagerService extends IStorageManager.Stub
                 return mInstaller.enableFsverity(authToken, filePath, packageName);
             } catch (Installer.InstallerException e) {
                 throw new IOException(e);
+            }
+        }
+
+        @Override
+        public void registerStorageLockEventListener(
+                @NonNull ICeStorageLockEventListener listener) {
+            boolean registered = mCeStorageEventCallbacks.add(listener);
+            if (!registered) {
+                Slog.w(TAG, "Failed to register listener: " + listener);
+            }
+        }
+
+        @Override
+        public void unregisterStorageLockEventListener(
+                @NonNull ICeStorageLockEventListener listener) {
+            boolean unregistered = mCeStorageEventCallbacks.remove(listener);
+            if (!unregistered) {
+                Slog.w(TAG, "Unregistering " + listener + " that was not registered");
             }
         }
     }

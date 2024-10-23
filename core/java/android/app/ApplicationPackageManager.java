@@ -84,6 +84,7 @@ import android.content.pm.parsing.ApkLiteParseUtils;
 import android.content.res.ApkAssets;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -118,19 +119,25 @@ import android.system.StructStat;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.AttributeSet;
 import android.util.LauncherIcons;
 import android.util.Log;
 import android.util.Slog;
+import android.util.Xml;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.Immutable;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
+import com.android.internal.pm.RoSystemFeatures;
 import com.android.internal.util.UserIcons;
 
 import dalvik.system.VMRuntime;
 
 import libcore.util.EmptyArray;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.File;
 import java.io.IOException;
@@ -812,6 +819,16 @@ public class ApplicationPackageManager extends PackageManager {
                 @Override
                 public Boolean recompute(HasSystemFeatureQuery query) {
                     try {
+                        // As an optimization, check first to see if the feature was defined at
+                        // compile-time as either available or unavailable.
+                        // TODO(b/203143243): Consider hoisting this optimization out of the cache
+                        // after the trunk stable (build) flag has soaked and more features are
+                        // defined at compile-time.
+                        Boolean maybeHasSystemFeature =
+                                RoSystemFeatures.maybeHasFeature(query.name, query.version);
+                        if (maybeHasSystemFeature != null) {
+                            return maybeHasSystemFeature.booleanValue();
+                        }
                         return ActivityThread.currentActivityThread().getPackageManager().
                             hasSystemFeature(query.name, query.version);
                     } catch (RemoteException e) {
@@ -4091,6 +4108,72 @@ public class ApplicationPackageManager extends PackageManager {
                     Log.w(TAG, "Failed to close apkAssets", ignored);
                 }
             }
+        }
+    }
+
+
+    @Override
+    public <T> T parseAndroidManifest(@NonNull ParcelFileDescriptor apkFileDescriptor,
+            @NonNull Function<XmlResourceParser, T> parserFunction) throws IOException {
+        Objects.requireNonNull(apkFileDescriptor, "apkFileDescriptor cannot be null");
+        Objects.requireNonNull(parserFunction, "parserFunction cannot be null");
+        try (XmlResourceParser xmlResourceParser = getAndroidManifestParser(apkFileDescriptor)) {
+            return parserFunction.apply(xmlResourceParser);
+        } catch (IOException e) {
+            Log.w(TAG, "Failed to get the android manifest parser", e);
+            throw e;
+        }
+    }
+
+    private static XmlResourceParser getAndroidManifestParser(@NonNull ParcelFileDescriptor fd)
+            throws IOException {
+        ApkAssets apkAssets = null;
+        try {
+            apkAssets = ApkAssets.loadFromFd(
+                    fd.getFileDescriptor(), fd.toString(), /* flags= */ 0 , /* assets= */null);
+            return apkAssets.openXml(ApkLiteParseUtils.ANDROID_MANIFEST_FILENAME);
+        } finally {
+            if (apkAssets != null) {
+                try {
+                    apkAssets.close();
+                } catch (Throwable ignored) {
+                    Log.w(TAG, "Failed to close apkAssets", ignored);
+                }
+            }
+        }
+    }
+
+    @Override
+    public TypedArray extractPackageItemInfoAttributes(PackageItemInfo info, String name,
+            String rootTag, int[] attributes) {
+        if (info == null || info.metaData == null) {
+            return null;
+        }
+
+        try (XmlResourceParser parser = info.loadXmlMetaData(this, name)) {
+            if (parser == null) {
+                Log.w(TAG, "No " + name + " metadata");
+                return null;
+            }
+
+            final AttributeSet attrs = Xml.asAttributeSet(parser);
+            while (true) {
+                final int type = parser.next();
+                if (type == XmlPullParser.END_DOCUMENT || type == XmlPullParser.START_TAG) {
+                    break;
+                }
+            }
+
+            if (!TextUtils.equals(parser.getName(), rootTag)) {
+                Log.w(TAG, "Metadata does not start with " + name + " tag");
+                return null;
+            }
+
+            return getResourcesForApplication(info.getApplicationInfo())
+                    .obtainAttributes(attrs, attributes);
+        } catch (PackageManager.NameNotFoundException | IOException | XmlPullParserException e) {
+            Log.e(TAG, "Error parsing: " + info.packageName, e);
+            return null;
         }
     }
 }

@@ -24,17 +24,28 @@ import com.github.javaparser.ParseProblemException
 import com.github.javaparser.ParserConfiguration
 import com.github.javaparser.StaticJavaParser
 import com.github.javaparser.ast.CompilationUnit
+import com.github.javaparser.ast.Modifier
 import com.github.javaparser.ast.NodeList
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration
-import com.github.javaparser.ast.body.InitializerDeclaration
+import com.github.javaparser.ast.expr.ArrayAccessExpr
+import com.github.javaparser.ast.expr.ArrayCreationExpr
+import com.github.javaparser.ast.expr.ArrayInitializerExpr
+import com.github.javaparser.ast.expr.AssignExpr
+import com.github.javaparser.ast.expr.BooleanLiteralExpr
+import com.github.javaparser.ast.expr.Expression
 import com.github.javaparser.ast.expr.FieldAccessExpr
+import com.github.javaparser.ast.expr.IntegerLiteralExpr
 import com.github.javaparser.ast.expr.MethodCallExpr
+import com.github.javaparser.ast.expr.MethodReferenceExpr
 import com.github.javaparser.ast.expr.NameExpr
 import com.github.javaparser.ast.expr.NullLiteralExpr
 import com.github.javaparser.ast.expr.ObjectCreationExpr
 import com.github.javaparser.ast.expr.SimpleName
 import com.github.javaparser.ast.expr.StringLiteralExpr
+import com.github.javaparser.ast.expr.VariableDeclarationExpr
 import com.github.javaparser.ast.stmt.BlockStmt
+import com.github.javaparser.ast.stmt.ReturnStmt
+import com.github.javaparser.ast.type.ClassOrInterfaceType
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileNotFoundException
@@ -45,8 +56,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.jar.JarOutputStream
 import java.util.zip.ZipEntry
-import kotlin.math.abs
-import kotlin.random.Random
+import kotlin.math.absoluteValue
 import kotlin.system.exitProcess
 
 object ProtoLogTool {
@@ -78,7 +88,11 @@ object ProtoLogTool {
     }
 
     private fun processClasses(command: CommandOptions) {
-        val generationHash = abs(Random.nextInt())
+        // A deterministic hash based on the group jar path and the source files we are processing.
+        // The hash is required to make sure different ProtoLogImpls don't conflict.
+        val generationHash = (command.javaSourceArgs.toTypedArray() + command.protoLogGroupsJarArg)
+                .contentHashCode().absoluteValue
+
         // Need to generate a new impl class to inject static constants into the class.
         val generatedProtoLogImplClass =
             "com.android.internal.protolog.ProtoLogImpl_$generationHash"
@@ -165,6 +179,8 @@ object ProtoLogTool {
         val classNameNode = classDeclaration.findFirst(SimpleName::class.java).get()
         classNameNode.setId(protoLogImplGenName)
 
+        injectCacheClass(classDeclaration, groups, protoLogGroupsClassName)
+
         injectConstants(classDeclaration,
             viewerConfigFilePath, legacyViewerConfigFilePath, legacyOutputFilePath, groups,
             protoLogGroupsClassName)
@@ -180,6 +196,7 @@ object ProtoLogTool {
         groups: Map<String, LogGroup>,
         protoLogGroupsClassName: String
     ) {
+        var needsCreateLogGroupsMap = false
         classDeclaration.fields.forEach { field ->
             field.getAnnotationByClass(ProtoLogToolInjected::class.java)
                     .ifPresent { annotationExpr ->
@@ -207,39 +224,116 @@ object ProtoLogTool {
                                             } ?: NullLiteralExpr())
                                 }
                                 ProtoLogToolInjected.Value.LOG_GROUPS.name -> {
-                                    val initializerBlockStmt = BlockStmt()
-                                    for (group in groups) {
-                                        initializerBlockStmt.addStatement(
-                                            MethodCallExpr()
-                                                    .setName("put")
-                                                    .setArguments(
-                                                        NodeList(StringLiteralExpr(group.key),
-                                                            FieldAccessExpr()
-                                                                    .setScope(
-                                                                        NameExpr(
-                                                                            protoLogGroupsClassName
-                                                                        ))
-                                                                    .setName(group.value.name)))
-                                        )
-                                        group.key
-                                    }
-
-                                    val treeMapCreation = ObjectCreationExpr()
-                                            .setType("TreeMap<String, IProtoLogGroup>")
-                                            .setAnonymousClassBody(NodeList(
-                                                InitializerDeclaration().setBody(
-                                                    initializerBlockStmt
-                                                )
-                                            ))
-
+                                    needsCreateLogGroupsMap = true
                                     field.setFinal(true)
-                                    field.variables.first().setInitializer(treeMapCreation)
+                                    field.variables.first().setInitializer(
+                                        MethodCallExpr().setName("createLogGroupsMap"))
+                                }
+                                ProtoLogToolInjected.Value.CACHE_UPDATER.name -> {
+                                    field.setFinal(true)
+                                    field.variables.first().setInitializer(MethodReferenceExpr()
+                                            .setScope(NameExpr("Cache"))
+                                            .setIdentifier("update"))
                                 }
                                 else -> error("Unhandled ProtoLogToolInjected value: $valueName.")
                             }
                         }
                     }
         }
+
+        if (needsCreateLogGroupsMap) {
+            val body = BlockStmt()
+            body.addStatement(AssignExpr(
+                VariableDeclarationExpr(
+                    ClassOrInterfaceType("TreeMap<String, IProtoLogGroup>"),
+                    "result"
+                ),
+                ObjectCreationExpr().setType("TreeMap<String, IProtoLogGroup>"),
+                AssignExpr.Operator.ASSIGN
+            ))
+            for (group in groups) {
+                body.addStatement(
+                    MethodCallExpr(
+                        NameExpr("result"),
+                        "put",
+                        NodeList(
+                                StringLiteralExpr(group.key),
+                                FieldAccessExpr()
+                                        .setScope(
+                                            NameExpr(
+                                                protoLogGroupsClassName
+                                            ))
+                                        .setName(group.value.name)
+                        )
+                    )
+                )
+            }
+            body.addStatement(ReturnStmt(NameExpr("result")))
+
+            val method = classDeclaration.addMethod(
+                "createLogGroupsMap",
+                Modifier.Keyword.PRIVATE,
+                Modifier.Keyword.STATIC,
+                Modifier.Keyword.FINAL
+            )
+            method.setType("TreeMap<String, IProtoLogGroup>")
+            method.setBody(body)
+        }
+    }
+
+    private fun injectCacheClass(
+        classDeclaration: ClassOrInterfaceDeclaration,
+        groups: Map<String, LogGroup>,
+        protoLogGroupsClassName: String,
+    ) {
+        val cacheClass = ClassOrInterfaceDeclaration()
+            .setName("Cache")
+            .setPublic(true)
+            .setStatic(true)
+        for (group in groups) {
+            val nodeList = NodeList<Expression>()
+            val defaultVal = BooleanLiteralExpr(group.value.textEnabled || group.value.enabled)
+            repeat(LogLevel.entries.size) { nodeList.add(defaultVal) }
+            cacheClass.addFieldWithInitializer(
+                "boolean[]",
+                "${group.key}_enabled",
+                ArrayCreationExpr().setElementType("boolean[]").setInitializer(
+                    ArrayInitializerExpr().setValues(nodeList)
+                ),
+                Modifier.Keyword.PUBLIC,
+                Modifier.Keyword.STATIC
+            )
+        }
+
+        val updateBlockStmt = BlockStmt()
+        for (group in groups) {
+            for (level in LogLevel.entries) {
+                updateBlockStmt.addStatement(
+                    AssignExpr()
+                        .setTarget(
+                            ArrayAccessExpr()
+                                .setName(NameExpr("${group.key}_enabled"))
+                                .setIndex(IntegerLiteralExpr(level.ordinal))
+                        ).setValue(
+                            MethodCallExpr()
+                                .setName("isEnabled")
+                                .setArguments(NodeList(
+                                    FieldAccessExpr()
+                                        .setScope(NameExpr(protoLogGroupsClassName))
+                                        .setName(group.value.name),
+                                    FieldAccessExpr()
+                                        .setScope(NameExpr("LogLevel"))
+                                        .setName(level.toString()),
+                                ))
+                        )
+                )
+            }
+        }
+
+        cacheClass.addMethod("update").setPrivate(true).setStatic(true)
+            .setBody(updateBlockStmt)
+
+        classDeclaration.addMember(cacheClass)
     }
 
     private fun tryParse(code: String, fileName: String): CompilationUnit {

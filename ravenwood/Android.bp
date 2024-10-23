@@ -5,29 +5,106 @@ package {
     // to get the below license kinds:
     //   SPDX-license-identifier-Apache-2.0
     default_applicable_licenses: ["frameworks_base_license"],
+
+    // OWNER: g/ravenwood
+    // Bug component: 25698
+    default_team: "trendy_team_ravenwood",
 }
 
 filegroup {
-    name: "ravenwood-annotations",
+    name: "ravenwood-common-policies",
     srcs: [
-        "annotations-src/**/*.java",
+        "texts/ravenwood-common-policies.txt",
     ],
-    path: "annotations-src",
-    visibility: ["//visibility:public"],
+    visibility: ["//visibility:private"],
+}
+
+filegroup {
+    name: "ravenwood-services-policies",
+    srcs: [
+        "texts/ravenwood-services-policies.txt",
+    ],
+    visibility: ["//visibility:private"],
+}
+
+filegroup {
+    name: "ravenwood-framework-policies",
+    srcs: [
+        "texts/ravenwood-framework-policies.txt",
+    ],
+    visibility: ["//visibility:private"],
+}
+
+filegroup {
+    name: "ravenwood-standard-options",
+    srcs: [
+        "texts/ravenwood-standard-options.txt",
+    ],
+    visibility: ["//visibility:private"],
+}
+
+filegroup {
+    name: "ravenwood-annotation-allowed-classes",
+    srcs: [
+        "texts/ravenwood-annotation-allowed-classes.txt",
+    ],
+    visibility: ["//visibility:private"],
+}
+
+// This and the next module contain the same classes with different implementations.
+// "ravenwood-runtime-common-device" will be statically linked in device side tests.
+// "ravenwood-runtime-common-ravenwood" will only exist in ravenwood-runtime, which will take
+// precedence even if the test jar (accidentally) contains "ravenwood-runtime-common-device".
+// "ravenwood-runtime-common" uses it to detect if the rutime is Ravenwood or not.
+java_library {
+    name: "ravenwood-runtime-common-ravenwood",
+    host_supported: true,
+    sdk_version: "core_current",
+    srcs: [
+        "runtime-common-ravenwood-src/**/*.java",
+    ],
+    visibility: [
+        // Some tests need to access the utilities.
+        ":__subpackages__",
+    ],
 }
 
 java_library {
-    name: "ravenwood-annotations-lib",
-    srcs: [":ravenwood-annotations"],
-    sdk_version: "core_current",
+    name: "ravenwood-runtime-common-device",
     host_supported: true,
-    visibility: ["//visibility:public"],
+    sdk_version: "core_current",
+    srcs: [
+        "runtime-common-device-src/**/*.java",
+    ],
+    visibility: ["//visibility:private"],
+}
+
+java_library {
+    name: "ravenwood-runtime-common",
+    host_supported: true,
+    sdk_version: "core_current",
+    srcs: [
+        "runtime-common-src/**/*.java",
+    ],
+    libs: [
+        "ravenwood-runtime-common-ravenwood",
+    ],
+    static_libs: [
+        "framework-annotations-lib", // should it be "libs" instead?
+    ],
+    visibility: ["//visibility:private"],
 }
 
 java_library_host {
     name: "ravenwood-helper-libcore-runtime.host",
     srcs: [
         "runtime-helper-src/libcore-fake/**/*.java",
+    ],
+    libs: [
+        "app-compat-annotations",
+    ],
+    static_libs: [
+        "ravenwood-runtime-common",
     ],
     visibility: ["//visibility:private"],
 }
@@ -45,10 +122,16 @@ java_library {
     srcs: [
         "runtime-helper-src/framework/**/*.java",
     ],
+    static_libs: [
+        "ravenwood-runtime-common",
+        "androidx.annotation_annotation",
+    ],
     libs: [
         "framework-minus-apex.ravenwood",
-        "ravenwood-junit",
+        "framework-configinfrastructure.ravenwood",
+        "ravenwood-helper-libcore-runtime",
     ],
+    sdk_version: "core_current",
     visibility: ["//visibility:private"],
 }
 
@@ -73,17 +156,30 @@ java_library {
     ],
     static_libs: [
         "androidx.test.monitor-for-device",
+        "ravenwood-runtime-common",
     ],
     libs: [
-        "android.test.mock",
+        "android.test.mock.impl",
         "framework-minus-apex.ravenwood",
         "ravenwood-framework",
         "services.core.ravenwood",
         "junit",
+        "framework-annotations-lib",
+        "ravenwood-helper-framework-runtime",
+        "ravenwood-helper-libcore-runtime",
+        "hoststubgen-helper-runtime.ravenwood",
+        "mockito-ravenwood-prebuilt",
     ],
-    sdk_version: "core_current",
     visibility: ["//frameworks/base"],
     jarjar_rules: ":ravenwood-services-jarjar-rules",
+}
+
+java_device_for_host {
+    name: "ravenwood-junit-impl-for-ravenizer",
+    libs: [
+        "ravenwood-junit-impl",
+    ],
+    visibility: [":__subpackages__"],
 }
 
 // Separated out from ravenwood-junit-impl since it needs to compile
@@ -101,10 +197,13 @@ java_library {
     visibility: ["//visibility:public"],
 }
 
-// Carefully compiles against only test_current to support tests that
+// Carefully compiles against only module_current to support tests that
 // want to verify they're unbundled.  The "impl" library above is what
 // ships inside the Ravenwood environment to actually drive any API
 // access to implementation details.
+// We can't use test_current here because this library needs to be statically
+// linked to mainline tests as well, which can't use test APIs because they
+// need to be able to run on multiple API levels.
 java_library {
     name: "ravenwood-junit",
     srcs: [
@@ -112,10 +211,15 @@ java_library {
         "junit-stub-src/**/*.java",
         "junit-flag-src/**/*.java",
     ],
-    sdk_version: "test_current",
+    sdk_version: "module_current",
+    static_libs: [
+        "ravenwood-runtime-common",
+        "ravenwood-runtime-common-device",
+    ],
     libs: [
         "junit",
         "flag-junit",
+        "framework-annotations-lib",
     ],
     visibility: ["//visibility:public"],
 }
@@ -150,7 +254,202 @@ java_device_for_host {
 }
 
 filegroup {
-    name: "ravenwood-services-jarjar-rules",
-    srcs: ["ravenwood-services-jarjar-rules.txt"],
+    name: "ravenwood-framework-jarjar-rules",
+    srcs: ["texts/ravenwood-framework-jarjar-rules.txt"],
     visibility: ["//frameworks/base"],
 }
+
+filegroup {
+    name: "ravenwood-services-jarjar-rules",
+    srcs: ["texts/ravenwood-services-jarjar-rules.txt"],
+    visibility: ["//frameworks/base"],
+}
+
+cc_defaults {
+    name: "ravenwood_jni_defaults",
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wno-unused-parameter",
+        "-Wthread-safety",
+    ],
+    static_libs: [
+        "libnativehelper_jvm",
+    ],
+    shared_libs: [
+        "liblog",
+    ],
+}
+
+// We need this as a separate library because we need to overload the
+// sysprop symbols before libbase is loaded into the process
+cc_library_host_shared {
+    name: "libravenwood_sysprop",
+    defaults: ["ravenwood_jni_defaults"],
+    srcs: ["runtime-jni/ravenwood_sysprop.cpp"],
+}
+
+cc_library_host_shared {
+    name: "libravenwood_runtime",
+    defaults: ["ravenwood_jni_defaults"],
+    srcs: [
+        "runtime-jni/ravenwood_runtime.cpp",
+        "runtime-jni/ravenwood_os_constants.cpp",
+    ],
+    shared_libs: [
+        "libbase",
+        "libutils",
+        "libcutils",
+    ],
+    visibility: ["//frameworks/base"],
+}
+
+// For collecting the *stats.csv files in a known directory under out/host/linux-x86/testcases/.
+// The "test" just shows the available stats filenames.
+sh_test_host {
+    name: "ravenwood-stats-checker",
+    src: "scripts/ravenwood-stats-checker.sh",
+    test_suites: ["general-tests"],
+    data: [
+        ":framework-minus-apex.ravenwood-base_all{hoststubgen_framework-minus-apex_stats.csv}",
+        ":framework-minus-apex.ravenwood-base_all{hoststubgen_framework-minus-apex_apis.csv}",
+        ":framework-minus-apex.ravenwood-base_all{hoststubgen_framework-minus-apex_keep_all.txt}",
+        ":framework-minus-apex.ravenwood-base_all{hoststubgen_framework-minus-apex_dump.txt}",
+        ":services.core.ravenwood-base{hoststubgen_services.core_stats.csv}",
+        ":services.core.ravenwood-base{hoststubgen_services.core_apis.csv}",
+        ":services.core.ravenwood-base{hoststubgen_services.core_keep_all.txt}",
+        ":services.core.ravenwood-base{hoststubgen_services.core_dump.txt}",
+
+        ":framework-configinfrastructure.ravenwood-base{framework-configinfrastructure_stats.csv}",
+        ":framework-configinfrastructure.ravenwood-base{framework-configinfrastructure_apis.csv}",
+        ":framework-configinfrastructure.ravenwood-base{framework-configinfrastructure_keep_all.txt}",
+        ":framework-configinfrastructure.ravenwood-base{framework-configinfrastructure_dump.txt}",
+
+        ":framework-statsd.ravenwood-base{framework-statsd_stats.csv}",
+        ":framework-statsd.ravenwood-base{framework-statsd_apis.csv}",
+        ":framework-statsd.ravenwood-base{framework-statsd_keep_all.txt}",
+        ":framework-statsd.ravenwood-base{framework-statsd_dump.txt}",
+    ],
+}
+
+java_library {
+    name: "services.fakes.ravenwood-jarjar",
+    installable: false,
+    srcs: [":services.fakes-sources"],
+    libs: [
+        "ravenwood-framework",
+        "services.core.ravenwood",
+    ],
+    jarjar_rules: ":ravenwood-services-jarjar-rules",
+    visibility: ["//visibility:private"],
+}
+
+java_library {
+    name: "mockito-ravenwood-prebuilt",
+    installable: false,
+    static_libs: [
+        "mockito-robolectric-prebuilt",
+    ],
+}
+
+java_library {
+    name: "inline-mockito-ravenwood-prebuilt",
+    installable: false,
+    static_libs: [
+        "inline-mockito-robolectric-prebuilt",
+    ],
+}
+
+// JARs in "ravenwood-runtime" are set to the classpath, sorted alphabetically.
+// Rename some of the dependencies to make sure they're included in the intended order.
+
+java_library {
+    name: "100-framework-minus-apex.ravenwood",
+    installable: false,
+    static_libs: ["framework-minus-apex.ravenwood"],
+    visibility: ["//visibility:private"],
+}
+
+java_library {
+    name: "200-kxml2-android",
+    installable: false,
+    static_libs: ["kxml2-android"],
+    visibility: ["//visibility:private"],
+}
+
+java_library {
+    name: "z00-all-updatable-modules-system-stubs",
+    installable: false,
+    static_libs: ["all-updatable-modules-system-stubs-for-host"],
+    visibility: ["//visibility:private"],
+}
+
+android_ravenwood_libgroup {
+    name: "ravenwood-runtime",
+    data: [
+        ":system-build.prop",
+        ":framework-res",
+        ":ravenwood-empty-res",
+        ":framework-platform-compat-config",
+        ":services-platform-compat-config",
+    ],
+    libs: [
+        "100-framework-minus-apex.ravenwood",
+        "200-kxml2-android",
+
+        "ravenwood-runtime-common-ravenwood",
+
+        "android.test.mock.ravenwood",
+        "ravenwood-helper-runtime",
+        "hoststubgen-helper-runtime.ravenwood",
+        "services.core.ravenwood-jarjar",
+        "services.fakes.ravenwood-jarjar",
+
+        // ICU
+        "core-icu4j-for-host.ravenwood",
+        "icu4j-icudata-jarjar",
+        "icu4j-icutzdata-jarjar",
+
+        // DeviceConfig
+        "framework-configinfrastructure.ravenwood",
+
+        // StatsD
+        "framework-statsd.ravenwood",
+
+        // Provide runtime versions of utils linked in below
+        "junit",
+        "truth",
+        "flag-junit",
+        "ravenwood-framework",
+        "ravenwood-junit-impl",
+        "ravenwood-junit-impl-flag",
+        "mockito-ravenwood-prebuilt",
+        "inline-mockito-ravenwood-prebuilt",
+
+        // It's a stub, so it should be towards the end.
+        "z00-all-updatable-modules-system-stubs",
+    ],
+    jni_libs: [
+        // Libraries has to be loaded in the following order
+        "libravenwood_sysprop",
+        "libravenwood_runtime",
+        "libandroid_runtime",
+    ],
+}
+
+android_ravenwood_libgroup {
+    name: "ravenwood-utils",
+    libs: [
+        "junit",
+        "truth",
+        "flag-junit",
+        "ravenwood-framework",
+        "ravenwood-junit",
+        "mockito-ravenwood-prebuilt",
+        "inline-mockito-ravenwood-prebuilt",
+    ],
+}
+
+build = [
+    "Framework.bp",
+]

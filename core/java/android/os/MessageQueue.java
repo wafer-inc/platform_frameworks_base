@@ -20,12 +20,11 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.TestApi;
 import android.compat.annotation.UnsupportedAppUsage;
+import android.ravenwood.annotation.RavenwoodRedirect;
 import android.util.Log;
 import android.util.Printer;
 import android.util.SparseArray;
 import android.util.proto.ProtoOutputStream;
-
-import dalvik.annotation.optimization.CriticalNative;
 
 import java.io.FileDescriptor;
 import java.lang.annotation.Retention;
@@ -41,8 +40,7 @@ import java.util.ArrayList;
  * {@link Looper#myQueue() Looper.myQueue()}.
  */
 @android.ravenwood.annotation.RavenwoodKeepWholeClass
-@android.ravenwood.annotation.RavenwoodNativeSubstitutionClass(
-        "com.android.platform.test.ravenwood.nativesubstitution.MessageQueue_host")
+@android.ravenwood.annotation.RavenwoodRedirectionClass("MessageQueue_host")
 public final class MessageQueue {
     private static final String TAG = "MessageQueue";
     private static final boolean DEBUG = false;
@@ -76,13 +74,18 @@ public final class MessageQueue {
     @UnsupportedAppUsage
     private int mNextBarrierToken;
 
+    @RavenwoodRedirect
     private native static long nativeInit();
+    @RavenwoodRedirect
     private native static void nativeDestroy(long ptr);
     @UnsupportedAppUsage
+    @RavenwoodRedirect
     private native void nativePollOnce(long ptr, int timeoutMillis); /*non-static for callbacks*/
-    @CriticalNative
+    @RavenwoodRedirect
     private native static void nativeWake(long ptr);
+    @RavenwoodRedirect
     private native static boolean nativeIsPolling(long ptr);
+    @RavenwoodRedirect
     private native static void nativeSetFileDescriptorEvents(long ptr, int fd, int events);
 
     MessageQueue(boolean quitAllowed) {

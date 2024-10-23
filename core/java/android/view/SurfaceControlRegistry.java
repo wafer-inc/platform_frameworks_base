@@ -71,7 +71,7 @@ public class SurfaceControlRegistry {
             }
             // Sort entries by time registered when dumping
             // TODO: Or should it sort by name?
-            entries.sort((o1, o2) -> (int) (o1.getValue() - o2.getValue()));
+            entries.sort((o1, o2) -> Long.compare(o1.getValue(), o2.getValue()));
             final int size = Math.min(entries.size(), limit);
 
             pw.println("SurfaceControlRegistry");
@@ -342,12 +342,14 @@ public class SurfaceControlRegistry {
             return false;
         }
         final boolean matchName = !sCallStackDebuggingMatchName.isEmpty();
-        if (matchName && (name == null
-                || !sCallStackDebuggingMatchName.contains(name.toLowerCase()))) {
-            // Skip if target surface doesn't match requested surface
+        if (!matchName) {
+            return true;
+        }
+        if (name == null) {
             return false;
         }
-        return true;
+        return sCallStackDebuggingMatchName.contains(name.toLowerCase()) ||
+                        name.toLowerCase().contains(sCallStackDebuggingMatchName);
     }
 
     /**

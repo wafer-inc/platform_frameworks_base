@@ -32,8 +32,11 @@ import android.app.appsearch.AppSearchManagerFrameworkInitializer;
 import android.app.blob.BlobStoreManagerFrameworkInitializer;
 import android.app.contentsuggestions.ContentSuggestionsManager;
 import android.app.contentsuggestions.IContentSuggestionsManager;
+import android.app.contextualsearch.ContextualSearchManager;
 import android.app.ecm.EnhancedConfirmationFrameworkInitializer;
 import android.app.job.JobSchedulerFrameworkInitializer;
+import android.app.ondeviceintelligence.IOnDeviceIntelligenceManager;
+import android.app.ondeviceintelligence.OnDeviceIntelligenceManager;
 import android.app.people.PeopleManager;
 import android.app.prediction.AppPredictionManager;
 import android.app.role.RoleFrameworkInitializer;
@@ -157,8 +160,7 @@ import android.net.NetworkWatchlistManager;
 import android.net.PacProxyManager;
 import android.net.TetheringManager;
 import android.net.VpnManager;
-import android.net.vcn.IVcnManagementService;
-import android.net.vcn.VcnManager;
+import android.net.vcn.VcnFrameworkInitializer;
 import android.net.wifi.WifiFrameworkInitializer;
 import android.net.wifi.nl80211.WifiNl80211Manager;
 import android.net.wifi.sharedconnectivity.app.SharedConnectivityManager;
@@ -213,12 +215,15 @@ import android.permission.PermissionManager;
 import android.print.IPrintManager;
 import android.print.PrintManager;
 import android.provider.E2eeContactKeysManager;
+import android.provider.ProviderFrameworkInitializer;
+import android.ranging.RangingFrameworkInitializer;
 import android.safetycenter.SafetyCenterFrameworkInitializer;
 import android.scheduling.SchedulingFrameworkInitializer;
 import android.security.FileIntegrityManager;
 import android.security.IFileIntegrityService;
 import android.security.attestationverification.AttestationVerificationManager;
 import android.security.attestationverification.IAttestationVerificationManagerService;
+import android.security.keystore.KeyStoreManager;
 import android.service.oemlock.IOemLockService;
 import android.service.oemlock.OemLockManager;
 import android.service.persistentdata.IPersistentDataBlockService;
@@ -440,15 +445,6 @@ public final class SystemServiceRegistry {
                 IBinder b = ServiceManager.getService(Context.VPN_MANAGEMENT_SERVICE);
                 IVpnManager service = IVpnManager.Stub.asInterface(b);
                 return new VpnManager(ctx, service);
-            }});
-
-        registerService(Context.VCN_MANAGEMENT_SERVICE, VcnManager.class,
-                new CachedServiceFetcher<VcnManager>() {
-            @Override
-            public VcnManager createService(ContextImpl ctx) throws ServiceNotFoundException {
-                IBinder b = ServiceManager.getService(Context.VCN_MANAGEMENT_SERVICE);
-                IVcnManagementService service = IVcnManagementService.Stub.asInterface(b);
-                return new VcnManager(ctx, service);
             }});
 
         registerService(Context.COUNTRY_DETECTOR, CountryDetector.class,
@@ -1280,6 +1276,16 @@ public final class SystemServiceRegistry {
                 }
             });
 
+        registerService(Context.CONTEXTUAL_SEARCH_SERVICE, ContextualSearchManager.class,
+                new CachedServiceFetcher<>() {
+                    @Override
+                    public ContextualSearchManager createService(ContextImpl ctx)
+                            throws ServiceNotFoundException {
+                        IBinder b = ServiceManager.getService(Context.CONTEXTUAL_SEARCH_SERVICE);
+                        return b == null ? null : new ContextualSearchManager();
+                    }
+                });
+
         registerService(Context.APP_PREDICTION_SERVICE, AppPredictionManager.class,
                 new CachedServiceFetcher<AppPredictionManager>() {
             @Override
@@ -1589,6 +1595,19 @@ public final class SystemServiceRegistry {
                         return new WearableSensingManager(ctx.getOuterContext(), manager);
                     }});
 
+        registerService(Context.ON_DEVICE_INTELLIGENCE_SERVICE, OnDeviceIntelligenceManager.class,
+                new CachedServiceFetcher<OnDeviceIntelligenceManager>() {
+                    @Override
+                    public OnDeviceIntelligenceManager createService(ContextImpl ctx)
+                            throws ServiceNotFoundException {
+                        IBinder iBinder = ServiceManager.getServiceOrThrow(
+                                Context.ON_DEVICE_INTELLIGENCE_SERVICE);
+                        IOnDeviceIntelligenceManager manager =
+                                IOnDeviceIntelligenceManager.Stub.asInterface(iBinder);
+                        return new OnDeviceIntelligenceManager(ctx.getOuterContext(), manager);
+                    }
+                });
+
         registerService(Context.GRAMMATICAL_INFLECTION_SERVICE, GrammaticalInflectionManager.class,
                 new CachedServiceFetcher<GrammaticalInflectionManager>() {
                     @Override
@@ -1607,6 +1626,17 @@ public final class SystemServiceRegistry {
                         return SharedConnectivityManager.create(ctx);
                     }
                 });
+
+        registerService(Context.KEYSTORE_SERVICE, KeyStoreManager.class,
+                new StaticServiceFetcher<KeyStoreManager>() {
+                    @Override
+                    public KeyStoreManager createService()
+                            throws ServiceNotFoundException {
+                        if (!android.security.Flags.keystoreGrantApi()) {
+                            throw new ServiceNotFoundException("KeyStoreManager is not supported");
+                        }
+                        return KeyStoreManager.getInstance();
+                    }});
 
         registerService(Context.CONTACT_KEYS_SERVICE, E2eeContactKeysManager.class,
                 new CachedServiceFetcher<E2eeContactKeysManager>() {
@@ -1661,6 +1691,11 @@ public final class SystemServiceRegistry {
             OnDevicePersonalizationFrameworkInitializer.registerServiceWrappers();
             DeviceLockFrameworkInitializer.registerServiceWrappers();
             VirtualizationFrameworkInitializer.registerServiceWrappers();
+            VcnFrameworkInitializer.registerServiceWrappers();
+
+            if (com.android.server.telecom.flags.Flags.telecomMainlineBlockedNumbersManager()) {
+                ProviderFrameworkInitializer.registerServiceWrappers();
+            }
             // This code is executed on zygote during preload, where only read-only
             // flags can be used. Do not use mutable flags.
             if (android.permission.flags.Flags.enhancedConfirmationModeApisEnabled()) {
@@ -1672,6 +1707,12 @@ public final class SystemServiceRegistry {
             if (android.webkit.Flags.updateServiceIpcWrapper()) {
                 WebViewBootstrapFrameworkInitializer.registerServiceWrappers();
             }
+            // This is guarded by aconfig flag "com.android.ranging.flags.ranging_stack_enabled"
+            // when the build flag RELEASE_RANGING_STACK is enabled. When disabled, this calls the
+            // mock RangingFrameworkInitializer#registerServiceWrappers which is no-op. As the
+            // aconfig lib for ranging module is built only if  RELEASE_RANGING_STACK is enabled,
+            // flagcannot be added here.
+            RangingFrameworkInitializer.registerServiceWrappers();
         } finally {
             // If any of the above code throws, we're in a pretty bad shape and the process
             // will likely crash, but we'll reset it just in case there's an exception handler...
@@ -1706,6 +1747,13 @@ public final class SystemServiceRegistry {
         return fetcher;
     }
 
+    private static boolean hasSystemFeatureOpportunistic(@NonNull ContextImpl ctx,
+            @NonNull String featureName) {
+        PackageManager manager = ctx.getPackageManager();
+        if (manager == null) return true;
+        return manager.hasSystemFeature(featureName);
+    }
+
     /**
      * Gets a system service from a given context.
      * @hide
@@ -1728,12 +1776,23 @@ public final class SystemServiceRegistry {
                 case Context.VIRTUALIZATION_SERVICE:
                 case Context.VIRTUAL_DEVICE_SERVICE:
                     return null;
-                case Context.SEARCH_SERVICE:
-                    // Wear device does not support SEARCH_SERVICE so we do not print WTF here
-                    PackageManager manager = ctx.getPackageManager();
-                    if (manager != null && manager.hasSystemFeature(PackageManager.FEATURE_WATCH)) {
+                case Context.VCN_MANAGEMENT_SERVICE:
+                    if (!hasSystemFeatureOpportunistic(ctx,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION)) {
                         return null;
                     }
+                    break;
+                case Context.SEARCH_SERVICE:
+                    // Wear device does not support SEARCH_SERVICE so we do not print WTF here
+                    if (hasSystemFeatureOpportunistic(ctx, PackageManager.FEATURE_WATCH)) {
+                        return null;
+                    }
+                    break;
+                case Context.APPWIDGET_SERVICE:
+                    if (!hasSystemFeatureOpportunistic(ctx, PackageManager.FEATURE_APP_WIDGETS)) {
+                        return null;
+                    }
+                    break;
             }
             Slog.wtf(TAG, "Manager wrapper not available: " + name);
             return null;

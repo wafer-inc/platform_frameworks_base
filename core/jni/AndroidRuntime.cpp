@@ -222,6 +222,8 @@ extern int register_jni_common(JNIEnv* env);
 extern int register_android_tracing_PerfettoDataSource(JNIEnv* env);
 extern int register_android_tracing_PerfettoDataSourceInstance(JNIEnv* env);
 extern int register_android_tracing_PerfettoProducer(JNIEnv* env);
+extern int register_android_window_InputTransferToken(JNIEnv* env);
+extern int register_android_view_WindowManagerGlobal(JNIEnv* env);
 
 // Namespace for Android Runtime flags applied during boot time.
 static const char* RUNTIME_NATIVE_BOOT_NAMESPACE = "runtime_native_boot";
@@ -1020,10 +1022,18 @@ int AndroidRuntime::startVm(JavaVM** pJavaVM, JNIEnv** pEnv, bool zygote, bool p
     parseCompilerOption("dalvik.vm.image-dex2oat-filter", dex2oatImageCompilerFilterBuf,
                         "--compiler-filter=", "-Ximage-compiler-option");
 
-    // If there is a dirty-image-objects file, push it.
-    if (hasFile("/system/etc/dirty-image-objects")) {
-        addOption("-Ximage-compiler-option");
-        addOption("--dirty-image-objects=/system/etc/dirty-image-objects");
+    // If there are dirty-image-objects files, push them.
+    const char* dirty_image_objects_options[] = {
+            "--dirty-image-objects=/apex/com.android.art/etc/dirty-image-objects",
+            "--dirty-image-objects=/system/etc/dirty-image-objects",
+    };
+    for (const char* option : dirty_image_objects_options) {
+        // Get the file path by finding the first '/' and check if
+        // this file exists.
+        if (hasFile(strchr(option, '/'))) {
+            addOption("-Ximage-compiler-option");
+            addOption(option);
+        }
     }
 
     parseCompilerOption("dalvik.vm.image-dex2oat-threads", dex2oatThreadsImageBuf, "-j",
@@ -1680,6 +1690,8 @@ static const RegJNIRec gRegJNI[] = {
         REG_JNI(register_android_tracing_PerfettoDataSource),
         REG_JNI(register_android_tracing_PerfettoDataSourceInstance),
         REG_JNI(register_android_tracing_PerfettoProducer),
+        REG_JNI(register_android_window_InputTransferToken),
+        REG_JNI(register_android_view_WindowManagerGlobal),
 };
 
 /*

@@ -108,6 +108,8 @@ filegroup {
 filegroup {
     name: "services-non-updatable-sources",
     srcs: [
+        ":incremental_aidl",
+        ":services.core-aidl-sources",
         ":services.core-sources",
         ":services.core-sources-am-wm",
         "core/java/com/android/server/am/package.html",
@@ -119,6 +121,7 @@ filegroup {
         ":services.companion-sources",
         ":services.contentcapture-sources",
         ":services.contentsuggestions-sources",
+        ":services.contextualsearch-sources",
         ":services.coverage-sources",
         ":services.credentials-sources",
         ":services.devicepolicy-sources",
@@ -183,6 +186,11 @@ art_profile_java_defaults {
     },
 }
 
+vintf_fragment {
+    name: "manifest_services.xml",
+    src: "manifest_services.xml",
+}
+
 // merge all required services into one jar
 // ============================================================
 java_library {
@@ -208,6 +216,7 @@ java_library {
         "services.companion",
         "services.contentcapture",
         "services.contentsuggestions",
+        "services.contextualsearch",
         "services.coverage",
         "services.credentials",
         "services.devicepolicy",
@@ -246,13 +255,14 @@ java_library {
         "service-sdksandbox.stubs.system_server",
     ],
 
-    vintf_fragments: [
+    vintf_fragment_modules: [
         "manifest_services.xml",
     ],
 
     required: [
         "libukey2_jni_shared",
         "protolog.conf.json.gz",
+        "core.protolog.pb",
     ],
     lint: {
         baseline_filename: "lint-baseline.xml",
@@ -356,4 +366,8 @@ non_updatable_exportable_droidstubs {
         },
     },
     api_surface: "system-server",
+    sdk_version: "module_current",
+    libs: [
+        "framework-annotations-lib",
+    ],
 }

@@ -35,6 +35,7 @@ import android.nfc.INfcDta;
 import android.nfc.INfcWlcStateListener;
 import android.nfc.NfcAntennaInfo;
 import android.nfc.WlcListenerDeviceInfo;
+import android.nfc.cardemulation.PollingFrame;
 import android.os.Bundle;
 
 /**
@@ -48,8 +49,8 @@ interface INfcAdapter
     INfcAdapterExtras getNfcAdapterExtrasInterface(in String pkg);
     INfcDta getNfcDtaInterface(in String pkg);
     int getState();
-    boolean disable(boolean saveState);
-    boolean enable();
+    boolean disable(boolean saveState, in String pkg);
+    boolean enable(in String pkg);
     void pausePolling(int timeoutInMs);
     void resumePolling();
 
@@ -61,7 +62,7 @@ interface INfcAdapter
 
     void dispatch(in Tag tag);
 
-    void setReaderMode (IBinder b, IAppCallback callback, int flags, in Bundle extras);
+    void setReaderMode (IBinder b, IAppCallback callback, int flags, in Bundle extras, String pkg);
 
     void addNfcUnlockHandler(INfcUnlockHandler unlockHandler, in int[] techList);
     void removeNfcUnlockHandler(INfcUnlockHandler unlockHandler);
@@ -72,7 +73,7 @@ interface INfcAdapter
     boolean setNfcSecure(boolean enable);
     NfcAntennaInfo getNfcAntennaInfo();
 
-    boolean setControllerAlwaysOn(boolean value);
+    void setControllerAlwaysOn(int mode);
     boolean isControllerAlwaysOn();
     boolean isControllerAlwaysOnSupported();
     void registerControllerAlwaysOnListener(in INfcControllerAlwaysOnListener listener);
@@ -87,10 +88,10 @@ interface INfcAdapter
     boolean isReaderOptionEnabled();
     boolean isReaderOptionSupported();
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)")
-    boolean enableReaderOption(boolean enable);
+    boolean enableReaderOption(boolean enable, in String pkg);
     boolean isObserveModeSupported();
     boolean isObserveModeEnabled();
-    boolean setObserveMode(boolean enabled);
+    boolean setObserveMode(boolean enabled, String pkg);
 
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)")
     boolean setWlcEnabled(boolean enable);
@@ -99,14 +100,21 @@ interface INfcAdapter
     void unregisterWlcStateListener(in INfcWlcStateListener listener);
     WlcListenerDeviceInfo getWlcListenerDeviceInfo();
 
-    void updateDiscoveryTechnology(IBinder b, int pollFlags, int listenFlags);
+    void updateDiscoveryTechnology(IBinder b, int pollFlags, int listenFlags, String pkg);
 
-    void notifyPollingLoop(in Bundle frame);
+    void notifyPollingLoop(in PollingFrame frame);
     void notifyHceDeactivated();
+    void notifyTestHceData(in int technology, in byte[] data);
     int sendVendorNciMessage(int mt, int gid, int oid, in byte[] payload);
     void registerVendorExtensionCallback(in INfcVendorNciCallback callbacks);
     void unregisterVendorExtensionCallback(in INfcVendorNciCallback callbacks);
     void registerOemExtensionCallback(INfcOemExtensionCallback callbacks);
     void unregisterOemExtensionCallback(INfcOemExtensionCallback callbacks);
     void clearPreference();
+    void setScreenState();
+    void checkFirmware();
+    List<String> fetchActiveNfceeList();
+    void triggerInitialization();
+    boolean getSettingStatus();
+    boolean isTagPresent();
 }

@@ -242,6 +242,16 @@ public abstract class HostApduService extends Service {
     /**
      * @hide
      */
+    public static final int MSG_OBSERVE_MODE_CHANGE = 5;
+
+    /**
+     * @hide
+     */
+    public static final int MSG_PREFERRED_SERVICE_CHANGED = 6;
+
+    /**
+     * @hide
+     */
     public static final String KEY_DATA = "data";
 
     /**
@@ -326,17 +336,24 @@ public abstract class HostApduService extends Service {
                 }
                 break;
                 case MSG_POLLING_LOOP:
-                    ArrayList<Bundle> frames =
-                            msg.getData().getParcelableArrayList(KEY_POLLING_LOOP_FRAMES_BUNDLE,
-                            Bundle.class);
-                    ArrayList<PollingFrame> pollingFrames =
-                            new ArrayList<PollingFrame>(frames.size());
-                    for (Bundle frame : frames) {
-                        pollingFrames.add(new PollingFrame(frame));
+                    if (android.nfc.Flags.nfcReadPollingLoop()) {
+                        ArrayList<PollingFrame> pollingFrames =
+                                msg.getData().getParcelableArrayList(
+                                    KEY_POLLING_LOOP_FRAMES_BUNDLE, PollingFrame.class);
+                        processPollingFrames(pollingFrames);
                     }
-                    processPollingFrames(pollingFrames);
                     break;
-            default:
+                case MSG_OBSERVE_MODE_CHANGE:
+                    if (android.nfc.Flags.nfcEventListener()) {
+                        onObserveModeStateChanged(msg.arg1 == 1);
+                    }
+                    break;
+                case MSG_PREFERRED_SERVICE_CHANGED:
+                    if (android.nfc.Flags.nfcEventListener()) {
+                        onPreferredServiceChanged(msg.arg1 == 1);
+                    }
+                    break;
+                default:
                 super.handleMessage(msg);
             }
         }
@@ -444,4 +461,26 @@ public abstract class HostApduService extends Service {
      * @param reason Either {@link #DEACTIVATION_LINK_LOSS} or {@link #DEACTIVATION_DESELECTED}
      */
     public abstract void onDeactivated(int reason);
+
+
+    /**
+     * This method is called when this service is the preferred Nfc service and
+     * Observe mode has been enabled or disabled.
+     *
+     * @param isEnabled true if observe mode has been enabled, false if it has been disabled
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public void onObserveModeStateChanged(boolean isEnabled) {
+
+    }
+
+    /**
+     * This method is called when this service gains or loses preferred Nfc service status.
+     *
+     * @param isPreferred true is this service has become the preferred Nfc service,
+     * false if it is no longer the preferred service
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public void onPreferredServiceChanged(boolean isPreferred) {
+    }
 }
