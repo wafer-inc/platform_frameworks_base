@@ -1,0 +1,54 @@
+name: Sync Wafer Branch with Upstream
+
+# Add permissions block
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+
+jobs:
+  sync-wafer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: wafer
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/aosp-mirror/platform_frameworks_base.git
+
+      - name: Fetch all branches
+        run: |
+          git fetch upstream
+          git fetch origin
+
+      - name: Merge upstream main into wafer
+        run: |
+          git merge upstream/main -m "Merge upstream main into wafer" --no-edit
+
+      - name: Handle merge conflicts by favoring upstream
+        if: failure()
+        run: |
+          git checkout --theirs .
+          git add .
+          git -c core.editor=true merge --continue
+
+      - name: Push changes
+        run: |
+          git push origin wafer
