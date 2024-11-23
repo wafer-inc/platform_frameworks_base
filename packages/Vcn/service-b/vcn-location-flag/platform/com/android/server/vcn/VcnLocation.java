@@ -13,10 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package android.platform.test.ravenwood;
 
-/** Stub class. The actual implementation is in junit-impl-src. */
-public class RavenwoodConfigState {
-    public RavenwoodConfigState(RavenwoodConfig config) {
-    }
+package com.android.server.vcn;
+
+/**
+ * Class to represent that VCN is in the platform
+ *
+ * <p>This class is used to check whether VCN is in the non-updatable platform or in a mainline
+ * module.
+ */
+// When VCN is in a mainline module, module/com/android/server/vcn/VcnLocation.java
+// will be built in to the vcn-location-sources filegroup. When VCN is in the non-updatable
+// platform, this class (platform/com/android/server/vcn/VcnLocation.java) will be built in to the
+// filegroup
+public class VcnLocation {
+    /** Indicate that VCN is the platform */
+    public static final boolean IS_VCN_IN_MAINLINE = false;
 }
