@@ -51,4 +51,4 @@ jobs:
 
       - name: Push changes
         run: |
-          git push origin wafer
+          git push origin wafer --follow-tags
