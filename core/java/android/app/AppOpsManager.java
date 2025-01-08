@@ -54,6 +54,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
 import android.database.DatabaseUtils;
 import android.health.connect.HealthConnectManager;
+import android.health.connect.HealthPermissions;
 import android.media.AudioAttributes.AttributeUsage;
 import android.media.MediaRouter2;
 import android.os.Binder;
@@ -79,7 +80,6 @@ import android.permission.flags.Flags;
 import android.provider.DeviceConfig;
 import android.util.ArrayMap;
 import android.util.ArraySet;
-import android.util.Log;
 import android.util.LongSparseArray;
 import android.util.LongSparseLongArray;
 import android.util.Pools;
@@ -1608,9 +1608,25 @@ public class AppOpsManager {
     public static final int OP_RECEIVE_SENSITIVE_NOTIFICATIONS =
             AppProtoEnums.APP_OP_RECEIVE_SENSITIVE_NOTIFICATIONS;
 
+    /** @hide Access to read heart rate sensor. */
+    public static final int OP_READ_HEART_RATE = AppProtoEnums.APP_OP_READ_HEART_RATE;
+
+    /** @hide Access to read skin temperature. */
+    public static final int OP_READ_SKIN_TEMPERATURE = AppProtoEnums.APP_OP_READ_SKIN_TEMPERATURE;
+
+    /**
+     * Allows an app to range with nearby devices using any ranging technology available.
+     *
+     * @hide
+     */
+    public static final int OP_RANGING = AppProtoEnums.APP_OP_RANGING;
+
+    /** @hide Access to read oxygen saturation. */
+    public static final int OP_READ_OXYGEN_SATURATION = AppProtoEnums.APP_OP_READ_OXYGEN_SATURATION;
+
     /** @hide */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    public static final int _NUM_OP = 149;
+    public static final int _NUM_OP = 153;
 
     /**
      * All app ops represented as strings.
@@ -1763,6 +1779,10 @@ public class AppOpsManager {
             OPSTR_UNARCHIVAL_CONFIRMATION,
             OPSTR_EMERGENCY_LOCATION,
             OPSTR_RECEIVE_SENSITIVE_NOTIFICATIONS,
+            OPSTR_READ_HEART_RATE,
+            OPSTR_READ_SKIN_TEMPERATURE,
+            OPSTR_RANGING,
+            OPSTR_READ_OXYGEN_SATURATION,
     })
     public @interface AppOpString {}
 
@@ -2500,6 +2520,26 @@ public class AppOpsManager {
     public static final String OPSTR_RECEIVE_SENSITIVE_NOTIFICATIONS =
             "android:receive_sensitive_notifications";
 
+    /** @hide Access to read heart rate sensor. */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_REPLACE_BODY_SENSOR_PERMISSION_ENABLED)
+    public static final String OPSTR_READ_HEART_RATE = "android:read_heart_rate";
+
+    /** @hide Access to read oxygen saturation. */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_REPLACE_BODY_SENSOR_PERMISSION_ENABLED)
+    public static final String OPSTR_READ_OXYGEN_SATURATION = "android:read_oxygen_saturation";
+
+    /** @hide Access to read skin temperature. */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_REPLACE_BODY_SENSOR_PERMISSION_ENABLED)
+    public static final String OPSTR_READ_SKIN_TEMPERATURE = "android:read_skin_temperature";
+
+    /** @hide Access to ranging */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_RANGING_PERMISSION_ENABLED)
+    public static final String OPSTR_RANGING = "android:ranging";
+
     /** {@link #sAppOpsToNote} not initialized yet for this op */
     private static final byte SHOULD_COLLECT_NOTE_OP_NOT_INITIALIZED = 0;
     /** Should not collect noting of this app-op in {@link #sAppOpsToNote} */
@@ -2571,8 +2611,13 @@ public class AppOpsManager {
             OP_BLUETOOTH_ADVERTISE,
             OP_UWB_RANGING,
             OP_NEARBY_WIFI_DEVICES,
+            Flags.rangingPermissionEnabled() ? OP_RANGING : OP_NONE,
             // Notifications
             OP_POST_NOTIFICATION,
+            // Health
+            Flags.replaceBodySensorPermissionEnabled() ? OP_READ_HEART_RATE : OP_NONE,
+            Flags.replaceBodySensorPermissionEnabled() ? OP_READ_SKIN_TEMPERATURE : OP_NONE,
+            Flags.replaceBodySensorPermissionEnabled() ? OP_READ_OXYGEN_SATURATION : OP_NONE,
     };
 
     /**
@@ -3080,6 +3125,24 @@ public class AppOpsManager {
         new AppOpInfo.Builder(OP_RECEIVE_SENSITIVE_NOTIFICATIONS,
                 OPSTR_RECEIVE_SENSITIVE_NOTIFICATIONS, "RECEIVE_SENSITIVE_NOTIFICATIONS")
                 .setDefaultMode(MODE_IGNORED).build(),
+        new AppOpInfo.Builder(OP_READ_HEART_RATE, OPSTR_READ_HEART_RATE, "READ_HEART_RATE")
+                .setPermission(Flags.replaceBodySensorPermissionEnabled()
+                ? HealthPermissions.READ_HEART_RATE : null)
+                .setDefaultMode(AppOpsManager.MODE_ALLOWED).build(),
+        new AppOpInfo.Builder(OP_READ_SKIN_TEMPERATURE, OPSTR_READ_SKIN_TEMPERATURE,
+                "READ_SKIN_TEMPERATURE").setPermission(
+                    Flags.replaceBodySensorPermissionEnabled()
+                        ? HealthPermissions.READ_SKIN_TEMPERATURE : null)
+                .setDefaultMode(AppOpsManager.MODE_ALLOWED).build(),
+        new AppOpInfo.Builder(OP_RANGING, OPSTR_RANGING, "RANGING")
+                .setPermission(Flags.rangingPermissionEnabled()
+                ? Manifest.permission.RANGING : null)
+                .setDefaultMode(AppOpsManager.MODE_ALLOWED).build(),
+        new AppOpInfo.Builder(OP_READ_OXYGEN_SATURATION, OPSTR_READ_OXYGEN_SATURATION,
+                "READ_OXYGEN_SATURATION").setPermission(
+                    Flags.replaceBodySensorPermissionEnabled()
+                        ? HealthPermissions.READ_OXYGEN_SATURATION : null)
+                .setDefaultMode(AppOpsManager.MODE_ALLOWED).build(),
     };
 
     // The number of longs needed to form a full bitmask of app ops
@@ -3133,6 +3196,10 @@ public class AppOpsManager {
             }
         }
         for (int op : RUNTIME_PERMISSION_OPS) {
+            if (op == OP_NONE) {
+                // Skip ops with a disabled feature flag.
+                continue;
+            }
             if (sAppOpInfos[op].permission != null) {
                 sPermToOp.put(sAppOpInfos[op].permission, op);
             }
@@ -3155,12 +3222,6 @@ public class AppOpsManager {
 
     /** @hide */
     public static final String KEY_HISTORICAL_OPS = "historical_ops";
-
-    /** System properties for debug logging of noteOp call sites */
-    private static final String DEBUG_LOGGING_ENABLE_PROP = "appops.logging_enabled";
-    private static final String DEBUG_LOGGING_PACKAGES_PROP = "appops.logging_packages";
-    private static final String DEBUG_LOGGING_OPS_PROP = "appops.logging_ops";
-    private static final String DEBUG_LOGGING_TAG = "AppOpsManager";
 
     /**
      * Retrieve the op switch that controls the given operation.
@@ -7459,15 +7520,15 @@ public class AppOpsManager {
         }
 
         /**
-         * Similar to {@link #onOpChanged(String, String, int)} but includes the device for which
-         * the op mode has changed.
+         * Similar to {@link #onOpChanged(String, String)} but includes user and the device for
+         * which the op mode has changed.
          *
          * <p> Implement this method if callbacks are required on all devices.
          * If not implemented explicitly, the default implementation will notify for op changes
-         * on the default device {@link VirtualDeviceManager#PERSISTENT_DEVICE_ID_DEFAULT} only.
+         * on the default device only.
          *
-         * <p> If implemented, {@link #onOpChanged(String, String, int)}
-         * will not be called automatically.
+         * <p> If implemented, {@link #onOpChanged(String, String)} will not be called
+         * automatically.
          *
          * @param op The Op that changed.
          * @param packageName Package of the app whose Op changed.
@@ -8066,14 +8127,6 @@ public class AppOpsManager {
     @RequiresPermission(android.Manifest.permission.MANAGE_APP_OPS_MODES)
     public void setUidMode(int code, int uid, @Mode int mode) {
         try {
-            // TODO(b/302609140): Remove extra logging after this issue is diagnosed.
-            if (code == OP_BLUETOOTH_CONNECT) {
-                Log.i(DEBUG_LOGGING_TAG,
-                        "setUidMode called for OP_BLUETOOTH_CONNECT with mode: " + mode
-                                + " for uid: " + uid + " calling uid: " + Binder.getCallingUid()
-                                + " trace: "
-                                + Arrays.toString(Thread.currentThread().getStackTrace()));
-            }
             mService.setUidMode(code, uid, mode);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -8094,15 +8147,6 @@ public class AppOpsManager {
     @RequiresPermission(android.Manifest.permission.MANAGE_APP_OPS_MODES)
     public void setUidMode(@NonNull String appOp, int uid, @Mode int mode) {
         try {
-            // TODO(b/302609140): Remove extra logging after this issue is diagnosed.
-            if (appOp.equals(OPSTR_BLUETOOTH_CONNECT)) {
-                Log.i(DEBUG_LOGGING_TAG,
-                        "setUidMode called for OPSTR_BLUETOOTH_CONNECT with mode: " + mode
-                                + " for uid: " + uid + " calling uid: " + Binder.getCallingUid()
-                                + " trace: "
-                                + Arrays.toString(Thread.currentThread().getStackTrace()));
-            }
-
             mService.setUidMode(AppOpsManager.strOpToOp(appOp), uid, mode);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -8143,14 +8187,6 @@ public class AppOpsManager {
     @RequiresPermission(android.Manifest.permission.MANAGE_APP_OPS_MODES)
     public void setMode(int code, int uid, String packageName, @Mode int mode) {
         try {
-            // TODO(b/302609140): Remove extra logging after this issue is diagnosed.
-            if (code == OP_BLUETOOTH_CONNECT) {
-                Log.i(DEBUG_LOGGING_TAG,
-                        "setMode called for OPSTR_BLUETOOTH_CONNECT with mode: " + mode
-                                + " for uid: " + uid + " calling uid: " + Binder.getCallingUid()
-                                + " trace: "
-                                + Arrays.toString(Thread.currentThread().getStackTrace()));
-            }
             mService.setMode(code, uid, packageName, mode);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -8173,14 +8209,6 @@ public class AppOpsManager {
     public void setMode(@NonNull String op, int uid, @Nullable String packageName,
             @Mode int mode) {
         try {
-            // TODO(b/302609140): Remove extra logging after this issue is diagnosed.
-            if (op.equals(OPSTR_BLUETOOTH_CONNECT)) {
-                Log.i(DEBUG_LOGGING_TAG,
-                        "setMode called for OPSTR_BLUETOOTH_CONNECT with mode: " + mode
-                                + " for uid: " + uid + " calling uid: " + Binder.getCallingUid()
-                                + " trace: "
-                                + Arrays.toString(Thread.currentThread().getStackTrace()));
-            }
             mService.setMode(strOpToOp(op), uid, packageName, mode);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -10779,8 +10807,13 @@ public class AppOpsManager {
                 final long key = makeKey(uidState, flag);
 
                 NoteOpEvent event = events.get(key);
-                if (lastEvent == null
-                        || event != null && event.getNoteTime() > lastEvent.getNoteTime()) {
+                if (event == null) {
+                    continue;
+                }
+
+                if (lastEvent == null || event.getNoteTime() > lastEvent.getNoteTime()
+                        || (event.getNoteTime() == lastEvent.getNoteTime()
+                                && event.getDuration() > lastEvent.getDuration())) {
                     lastEvent = event;
                 }
             }
@@ -11024,7 +11057,8 @@ public class AppOpsManager {
 
                 if (access != null) {
                     NoteOpEvent existingAccess = accessEvents.get(key);
-                    if (existingAccess == null || existingAccess.getDuration() == -1) {
+                    if (existingAccess == null || existingAccess.getDuration() == -1
+                            || existingAccess.getDuration() < access.getDuration()) {
                         accessEvents.append(key, access);
                     } else if (existingAccess.mProxy == null && access.mProxy != null ) {
                         existingAccess.mProxy = access.mProxy;

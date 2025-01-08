@@ -21,11 +21,12 @@ import android.content.res.ColorStateList
 import android.view.View
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import com.android.app.tracing.coroutines.launch
+import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.systemui.deviceentry.shared.DeviceEntryUdfpsRefactor
 import com.android.systemui.keyguard.ui.view.DeviceEntryIconView
 import com.android.systemui.keyguard.ui.viewmodel.AlternateBouncerUdfpsIconViewModel
 import com.android.systemui.lifecycle.repeatWhenAttached
+import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 @ExperimentalCoroutinesApi
@@ -52,7 +53,11 @@ object AlternateBouncerUdfpsViewBinder {
                     }
                 }
 
-                launch("$TAG#viewModel.alpha") { viewModel.alpha.collect { view.alpha = it } }
+                if (SceneContainerFlag.isEnabled) {
+                    view.alpha = 1f
+                } else {
+                    launch("$TAG#viewModel.alpha") { viewModel.alpha.collect { view.alpha = it } }
+                }
             }
         }
 

@@ -30,12 +30,16 @@ android_test {
         "src/**/*.kt",
 
         "test-apps/SuspendTestApp/src/**/*.java",
+        "test-apps/DisplayManagerTestApp/src/**/*.java",
     ],
 
     kotlincflags: [
         "-Werror",
     ],
     static_libs: [
+        "a11ychecker",
+        "aatf",
+        "accessibility_protos_lite",
         "cts-input-lib",
         "frameworks-base-testutils",
         "services.accessibility",
@@ -76,7 +80,6 @@ android_test {
         // TODO: remove once Android migrates to JUnit 4.12,
         // which provides assertThrows
         "testng",
-        "truth",
         "junit",
         "junit-params",
         "ActivityContext",
@@ -94,7 +97,7 @@ android_test {
     libs: [
         "android.hardware.power-V1-java",
         "android.hardware.tv.cec-V1.0-java",
-        "android.hardware.vibrator-V2-java",
+        "android.hardware.vibrator-V3-java",
         "android.hidl.manager-V1.0-java",
         "android.test.mock.stubs.system",
         "android.test.base.stubs.system",
@@ -133,6 +136,7 @@ android_test {
     },
 
     data: [
+        ":DisplayManagerTestApp",
         ":SimpleServiceTestApp1",
         ":SimpleServiceTestApp2",
         ":SimpleServiceTestApp3",
@@ -149,21 +153,49 @@ android_test {
     resource_zips: [":FrameworksServicesTests_apks_as_resources"],
 }
 
-android_ravenwood_test {
-    name: "FrameworksServicesTestsRavenwood",
+java_defaults {
+    name: "FrameworksServicesTestsRavenwood-defaults",
     libs: [
         "android.test.mock.stubs.system",
     ],
     static_libs: [
         "androidx.annotation_annotation",
         "androidx.test.rules",
-        "services.core",
         "flag-junit",
+    ],
+    auto_gen_config: true,
+}
+
+// Unit tests for UriGrantManager, running on ravenwood.
+// Note UriGrantManager does not support Ravenwood (yet). We're just running the original
+// unit tests as is on Ravenwood. So here, we use the original "services.core", because
+// "services.core.ravenwood" doesn't have the target code.
+// (Compare to FrameworksServicesTestsRavenwood_Compat, which does support Ravenwood.)
+android_ravenwood_test {
+    name: "FrameworksServicesTestsRavenwood_Uri",
+    defaults: ["FrameworksServicesTestsRavenwood-defaults"],
+    team: "trendy_team_ravenwood",
+    static_libs: [
+        "services.core",
     ],
     srcs: [
         "src/com/android/server/uri/**/*.java",
     ],
-    auto_gen_config: true,
+}
+
+// Unit tests for compat-framework.
+// Compat-framework does support Ravenwood, and it uses the ravenwood anottations,
+// so we link "services.core.ravenwood".
+android_ravenwood_test {
+    name: "FrameworksServicesTestsRavenwood_Compat",
+    defaults: ["FrameworksServicesTestsRavenwood-defaults"],
+    team: "trendy_team_ravenwood",
+    static_libs: [
+        "services.core.ravenwood",
+    ],
+    srcs: [
+        "src/com/android/server/compat/**/*.java",
+    ],
 }
 
 java_library {

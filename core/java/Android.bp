@@ -21,9 +21,12 @@ filegroup {
         "**/*.aidl",
         ":systemfeatures-gen-srcs",
         ":framework-nfc-non-updatable-sources",
+        ":messagequeue-gen",
         ":ranging_stack_mock_initializer",
     ],
+    // Exactly one MessageQueue.java will be added to srcs by messagequeue-gen
     exclude_srcs: [
+        "android/os/*MessageQueue/**/*.java",
         "android/ranging/**/*.java",
     ],
     visibility: ["//frameworks/base"],
@@ -63,6 +66,32 @@ ranging_stack_framework_mock_init {
             },
         },
     },
+}
+
+// Add selected MessageQueue.java implementation to srcs
+soong_config_module_type {
+    name: "release_package_messagequeue_implementation_srcs",
+    module_type: "genrule",
+    config_namespace: "messagequeue",
+    value_variables: ["release_package_messagequeue_implementation"],
+    properties: [
+        "srcs",
+    ],
+}
+
+// Output the selected android/os/MessageQueue.java implementation
+release_package_messagequeue_implementation_srcs {
+    name: "messagequeue-gen",
+    soong_config_variables: {
+        release_package_messagequeue_implementation: {
+            srcs: ["android/os/%s"],
+            conditions_default: {
+                srcs: ["android/os/LegacyMessageQueue/MessageQueue.java"],
+            },
+        },
+    },
+    cmd: "mkdir -p android/os/; cp $(in) $(out);",
+    out: ["android/os/MessageQueue.java"],
 }
 
 aidl_library {
@@ -619,7 +648,6 @@ filegroup {
 
 java_library {
     name: "protolog-lib",
-    platform_apis: true,
     srcs: [
         "com/android/internal/protolog/ProtoLogImpl.java",
         "com/android/internal/protolog/ProtoLogViewerConfigReader.java",
@@ -639,28 +667,8 @@ java_library {
 
 // protolog end
 
-// Whether to enable read-only system feature codegen.
-gen_readonly_feature_apis = select(release_flag("RELEASE_USE_SYSTEM_FEATURE_BUILD_FLAGS"), {
-    true: "true",
-    false: "false",
-    default: "false",
-})
-
-// Generates com.android.internal.pm.RoSystemFeatures, optionally compiling in
-// details about fixed system features defined by build flags. When disabled,
-// the APIs are simply passthrough stubs with no meaningful side effects.
-genrule {
+java_system_features_srcs {
     name: "systemfeatures-gen-srcs",
-    cmd: "$(location systemfeatures-gen-tool) com.android.internal.pm.RoSystemFeatures " +
-        // --readonly=false (default) makes the codegen an effective no-op passthrough API.
-        " --readonly=" + gen_readonly_feature_apis +
-        // For now, only export "android.hardware.type.*" system features APIs.
-        // TODO(b/203143243): Use an intermediate soong var that aggregates all declared
-        // RELEASE_SYSTEM_FEATURE_* declarations into a single arg.
-        " --feature-apis=AUTOMOTIVE,WATCH,TELEVISION,EMBEDDED,PC" +
-        " > $(out)",
-    out: [
-        "RoSystemFeatures.java",
-    ],
-    tools: ["systemfeatures-gen-tool"],
+    full_class_name: "com.android.internal.pm.RoSystemFeatures",
+    visibility: ["//visibility:private"],
 }
