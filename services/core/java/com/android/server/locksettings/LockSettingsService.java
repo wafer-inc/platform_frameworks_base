@@ -137,6 +137,7 @@ import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
 import com.android.internal.notification.SystemNotificationChannels;
+import com.android.internal.pm.RoSystemFeatures;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.DumpUtils;
 import com.android.internal.util.IndentingPrintWriter;
@@ -253,10 +254,10 @@ public class LockSettingsService extends ILockSettings.Stub {
 
     private static final String MIGRATED_FRP2 = "migrated_frp2";
     private static final String MIGRATED_KEYSTORE_NS = "migrated_keystore_namespace";
-    private static final String MIGRATED_SP_CE_ONLY = "migrated_all_users_to_sp_and_bound_ce";
     private static final String MIGRATED_SP_FULL = "migrated_all_users_to_sp_and_bound_keys";
     private static final String MIGRATED_WEAVER_DISABLED_ON_UNSECURED_USERS =
             "migrated_weaver_disabled_on_unsecured_users";
+    // Note: some other migrated_* strings used to be used and may exist in the database already.
 
     // Duration that LockSettingsService will store the gatekeeper password for. This allows
     // multiple biometric enrollments without prompting the user to enter their password via
@@ -347,6 +348,8 @@ public class LockSettingsService extends ILockSettings.Stub {
 
     private final StorageManagerInternal mStorageManagerInternal;
 
+    private final Object mGcWorkToken = new Object();
+
     // This class manages life cycle events for encrypted users on File Based Encryption (FBE)
     // devices. The most basic of these is to show/hide notifications about missing features until
     // the user unlocks the account and credential-encrypted storage is available.
@@ -367,16 +370,7 @@ public class LockSettingsService extends ILockSettings.Stub {
         @Override
         public void onBootPhase(int phase) {
             super.onBootPhase(phase);
-            if (phase == PHASE_ACTIVITY_MANAGER_READY) {
-                mLockSettingsService.migrateOldDataAfterSystemReady();
-                mLockSettingsService.deleteRepairModePersistentDataIfNeeded();
-            } else if (phase == PHASE_BOOT_COMPLETED) {
-                // In the case of an upgrade, PHASE_BOOT_COMPLETED means that a rollback to the old
-                // build can no longer occur.  This is the time to destroy any migrated protectors.
-                mLockSettingsService.destroyMigratedProtectors();
-
-                mLockSettingsService.loadEscrowData();
-            }
+            mLockSettingsService.onBootPhase(phase);
         }
 
         @Override
@@ -392,6 +386,21 @@ public class LockSettingsService extends ILockSettings.Stub {
         @Override
         public void onUserStopped(@NonNull TargetUser user) {
             mLockSettingsService.onUserStopped(user.getUserIdentifier());
+        }
+    }
+
+    private void onBootPhase(int phase) {
+        if (phase == SystemService.PHASE_ACTIVITY_MANAGER_READY) {
+            migrateOldDataAfterSystemReady();
+            deleteRepairModePersistentDataIfNeeded();
+        } else if (phase == SystemService.PHASE_BOOT_COMPLETED) {
+            mHandler.post(() -> {
+                // In the case of an upgrade, PHASE_BOOT_COMPLETED means that a rollback to the old
+                // build can no longer occur.  This is the time to destroy any migrated protectors.
+                destroyMigratedProtectors();
+
+                loadEscrowData();
+            });
         }
     }
 
@@ -430,9 +439,9 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
         LockscreenCredential credential =
                 LockscreenCredential.createUnifiedProfilePassword(newPassword);
-        Arrays.fill(newPasswordChars, '\u0000');
-        Arrays.fill(newPassword, (byte) 0);
-        Arrays.fill(randomLockSeed, (byte) 0);
+        LockPatternUtils.zeroize(newPasswordChars);
+        LockPatternUtils.zeroize(newPassword);
+        LockPatternUtils.zeroize(randomLockSeed);
         return credential;
     }
 
@@ -443,6 +452,7 @@ public class LockSettingsService extends ILockSettings.Stub {
      * @param profileUserId  profile user Id
      * @param profileUserPassword  profile original password (when it has separated lock).
      */
+    @GuardedBy("mSpManager")
     private void tieProfileLockIfNecessary(int profileUserId,
             LockscreenCredential profileUserPassword) {
         // Only for profiles that shares credential with parent
@@ -901,14 +911,8 @@ public class LockSettingsService extends ILockSettings.Stub {
                 // Hide notification first, as tie profile lock takes time
                 hideEncryptionNotification(new UserHandle(userId));
 
-                if (android.app.admin.flags.Flags.fixRaceConditionInTieProfileLock()) {
-                    synchronized (mSpManager) {
-                        tieProfileLockIfNecessary(userId, LockscreenCredential.createNone());
-                    }
-                } else {
-                    if (isCredentialSharableWithParent(userId)) {
-                        tieProfileLockIfNecessary(userId, LockscreenCredential.createNone());
-                    }
+                synchronized (mSpManager) {
+                    tieProfileLockIfNecessary(userId, LockscreenCredential.createNone());
                 }
             }
         });
@@ -1183,9 +1187,7 @@ public class LockSettingsService extends ILockSettings.Stub {
 
             // If config_disableWeaverOnUnsecuredUsers=true, then the Weaver HAL may be buggy and
             // need multiple retries before it works here to unwrap the SP, if the SP was already
-            // protected by Weaver.  Note that the problematic HAL can also deadlock if called with
-            // the ActivityManagerService lock held, but that should not be a problem here since
-            // that lock isn't held here, unlike unlockUserKeyIfUnsecured() where it is.
+            // protected by Weaver.
             for (int i = 0; i < 12 && sp == null; i++) {
                 Slog.e(TAG, "Failed to unwrap synthetic password. Waiting 5 seconds to retry.");
                 SystemClock.sleep(5000);
@@ -1221,21 +1223,16 @@ public class LockSettingsService extends ILockSettings.Stub {
                 Slog.i(TAG, "Synthetic password is already not protected by Weaver");
             }
         } else if (sp == null) {
-            Slogf.wtf(TAG, "Failed to unwrap synthetic password for unsecured user %d", userId);
-            return;
+            throw new IllegalStateException(
+                    "Failed to unwrap synthetic password for unsecured user " + userId);
         }
 
         // Call setCeStorageProtection(), to re-encrypt the CE key with the SP if it's currently
-        // encrypted by an empty secret.  Skip this if it was definitely already done as part of the
-        // upgrade to Android 14, since while setCeStorageProtection() is idempotent it does log
-        // some error messages when called again.  Do not skip this if
-        // config_disableWeaverOnUnsecuredUsers=true, since in that case we'd like to recover from
-        // the case where an earlier upgrade to Android 14 incorrectly skipped this step.
-        if (getString(MIGRATED_SP_CE_ONLY, null, 0) == null
-                || isWeaverDisabledOnUnsecuredUsers()) {
-            Slogf.i(TAG, "Encrypting CE key of user %d with synthetic password", userId);
-            setCeStorageProtection(userId, sp);
-        }
+        // encrypted by an empty secret.  If the CE key is already encrypted by the SP, then this is
+        // a no-op except for some log messages.
+        Slogf.i(TAG, "Encrypting CE key of user %d with synthetic password", userId);
+        setCeStorageProtection(userId, sp);
+
         Slogf.i(TAG, "Initializing Keystore super keys for user %d", userId);
         initKeystoreSuperKeys(userId, sp, /* allowExisting= */ true);
     }
@@ -1329,7 +1326,7 @@ public class LockSettingsService extends ILockSettings.Stub {
         mContext.enforceCallingOrSelfPermission(
                 Manifest.permission.MANAGE_WEAK_ESCROW_TOKEN,
                 "Requires MANAGE_WEAK_ESCROW_TOKEN permission.");
-        if (!mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
+        if (!RoSystemFeatures.hasFeatureAutomotive(mContext)) {
             throw new IllegalArgumentException(
                     "Weak escrow token are only for automotive devices.");
         }
@@ -1379,11 +1376,7 @@ public class LockSettingsService extends ILockSettings.Stub {
                 mStorage.removeChildProfileLock(userId);
                 removeKeystoreProfileKey(userId);
             } else {
-                if (android.app.admin.flags.Flags.fixRaceConditionInTieProfileLock()) {
-                    synchronized (mSpManager) {
-                        tieProfileLockIfNecessary(userId, profileUserPassword);
-                    }
-                } else {
+                synchronized (mSpManager) {
                     tieProfileLockIfNecessary(userId, profileUserPassword);
                 }
             }
@@ -1545,7 +1538,7 @@ public class LockSettingsService extends ILockSettings.Stub {
                         + userId);
             }
         } finally {
-            Arrays.fill(password, (byte) 0);
+            LockPatternUtils.zeroize(password);
         }
     }
 
@@ -1578,7 +1571,7 @@ public class LockSettingsService extends ILockSettings.Stub {
         decryptionResult = cipher.doFinal(encryptedPassword);
         LockscreenCredential credential = LockscreenCredential.createUnifiedProfilePassword(
                 decryptionResult);
-        Arrays.fill(decryptionResult, (byte) 0);
+        LockPatternUtils.zeroize(decryptionResult);
         try {
             long parentSid = getGateKeeperService().getSecureUserId(
                     mUserManager.getProfileParent(userId).id);
@@ -2271,7 +2264,7 @@ public class LockSettingsService extends ILockSettings.Stub {
         } catch (RemoteException e) {
             Slogf.wtf(TAG, e, "Failed to unlock CE storage for %s user %d", userType, userId);
         } finally {
-            Arrays.fill(secret, (byte) 0);
+            LockPatternUtils.zeroize(secret);
         }
     }
 
@@ -3621,7 +3614,7 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
 
         // Escrow tokens are enabled on automotive builds.
-        if (mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
+        if (RoSystemFeatures.hasFeatureAutomotive(mContext)) {
             return;
         }
 
@@ -3639,11 +3632,19 @@ public class LockSettingsService extends ILockSettings.Stub {
      * release references to the argument.
      */
     private void scheduleGc() {
+        // Cancel any existing GC request first, so that GC requests don't pile up if lockscreen
+        // credential operations are happening very quickly, e.g. as sometimes happens during tests.
+        //
+        // This delays the already-requested GC, but that is fine in practice where lockscreen
+        // operations don't happen very quickly.  And the precise time that the sanitization happens
+        // isn't very important; doing it within a minute can be fine, for example.
+        mHandler.removeCallbacksAndMessages(mGcWorkToken);
+
         mHandler.postDelayed(() -> {
             System.gc();
             System.runFinalization();
             System.gc();
-        }, 2000);
+        }, mGcWorkToken, 2000);
     }
 
     private class DeviceProvisionedObserver extends ContentObserver {

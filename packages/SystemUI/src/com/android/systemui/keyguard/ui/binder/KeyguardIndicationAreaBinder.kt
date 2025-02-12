@@ -22,13 +22,14 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import com.android.app.tracing.coroutines.launch
+import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.systemui.keyguard.KeyguardBottomAreaRefactor
 import com.android.systemui.keyguard.MigrateClocksToBlueprint
 import com.android.systemui.keyguard.ui.viewmodel.KeyguardIndicationAreaViewModel
 import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.KeyguardIndicationController
+import com.android.systemui.util.kotlin.DisposableHandles
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,7 +54,15 @@ object KeyguardIndicationAreaBinder {
         viewModel: KeyguardIndicationAreaViewModel,
         indicationController: KeyguardIndicationController,
     ): DisposableHandle {
-        indicationController.setIndicationArea(view)
+        val disposables = DisposableHandles()
+
+        // As the indication controller is a singleton, reset the view back to the previous view
+        // once the current view is disposed.
+        val previous = indicationController.indicationArea
+        indicationController.indicationArea = view
+        disposables += DisposableHandle {
+            previous?.let { indicationController.indicationArea = it }
+        }
 
         val indicationText: TextView = view.requireViewById(R.id.keyguard_indication_text)
         val indicationTextBottom: TextView =
@@ -63,7 +72,7 @@ object KeyguardIndicationAreaBinder {
         view.clipToPadding = false
 
         val configurationBasedDimensions = MutableStateFlow(loadFromResources(view))
-        val disposableHandle =
+        disposables +=
             view.repeatWhenAttached {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch("$TAG#viewModel.alpha") {
@@ -124,9 +133,15 @@ object KeyguardIndicationAreaBinder {
                             configurationBasedDimensions.value = loadFromResources(view)
                         }
                     }
+
+                    launch("$TAG#viewModel.visible") {
+                        viewModel.visible.collect { visible ->
+                            indicationController.setVisible(visible)
+                        }
+                    }
                 }
             }
-        return disposableHandle
+        return disposables
     }
 
     private fun loadFromResources(view: View): ConfigurationBasedDimensions {

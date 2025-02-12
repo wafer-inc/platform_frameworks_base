@@ -33,7 +33,7 @@ import androidx.constraintlayout.widget.ConstraintSet.TOP
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import com.android.app.tracing.coroutines.launch
+import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.internal.policy.SystemBarUtils
 import com.android.systemui.customization.R as customizationR
 import com.android.systemui.keyguard.shared.model.ClockSizeSetting
@@ -121,7 +121,10 @@ object KeyguardPreviewClockViewBinder {
     private fun applyClockDefaultConstraints(context: Context, constraints: ConstraintSet) {
         constraints.apply {
             constrainWidth(R.id.lockscreen_clock_view_large, ConstraintSet.WRAP_CONTENT)
-            constrainHeight(R.id.lockscreen_clock_view_large, ConstraintSet.MATCH_CONSTRAINT)
+            // The following two lines make lockscreen_clock_view_large is constrained to available
+            // height when it goes beyond constraints; otherwise, it use WRAP_CONTENT
+            constrainHeight(R.id.lockscreen_clock_view_large, WRAP_CONTENT)
+            constrainMaxHeight(R.id.lockscreen_clock_view_large, 0)
             val largeClockTopMargin =
                 SystemBarUtils.getStatusBarHeight(context) +
                     context.resources.getDimensionPixelSize(
@@ -138,7 +141,7 @@ object KeyguardPreviewClockViewBinder {
                 R.id.lockscreen_clock_view_large,
                 ConstraintSet.END,
                 PARENT_ID,
-                ConstraintSet.END
+                ConstraintSet.END,
             )
 
             // In preview, we'll show UDFPS icon for UDFPS devices
@@ -160,14 +163,14 @@ object KeyguardPreviewClockViewBinder {
                     BOTTOM,
                     PARENT_ID,
                     BOTTOM,
-                    clockBottomMargin
+                    clockBottomMargin,
                 )
             }
 
             constrainWidth(R.id.lockscreen_clock_view, WRAP_CONTENT)
             constrainHeight(
                 R.id.lockscreen_clock_view,
-                context.resources.getDimensionPixelSize(customizationR.dimen.small_clock_height)
+                context.resources.getDimensionPixelSize(customizationR.dimen.small_clock_height),
             )
             connect(
                 R.id.lockscreen_clock_view,
@@ -175,7 +178,7 @@ object KeyguardPreviewClockViewBinder {
                 PARENT_ID,
                 START,
                 context.resources.getDimensionPixelSize(customizationR.dimen.clock_padding_start) +
-                    context.resources.getDimensionPixelSize(R.dimen.status_view_margin_horizontal)
+                    context.resources.getDimensionPixelSize(R.dimen.status_view_margin_horizontal),
             )
             val smallClockTopMargin =
                 context.resources.getDimensionPixelSize(R.dimen.keyguard_clock_top_margin) +
@@ -188,7 +191,7 @@ object KeyguardPreviewClockViewBinder {
         context: Context,
         rootView: ConstraintLayout,
         previewClock: ClockController,
-        viewModel: KeyguardPreviewClockViewModel
+        viewModel: KeyguardPreviewClockViewModel,
     ) {
         val cs = ConstraintSet().apply { clone(rootView) }
         applyClockDefaultConstraints(context, cs)

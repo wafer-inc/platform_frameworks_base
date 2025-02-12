@@ -65,6 +65,7 @@ import java.util.Map;
  *
  * {@hide}
  */
+@JavaDelegator
 oneway interface IApplicationThread {
     void scheduleReceiver(in Intent intent, in ActivityInfo info,
             in CompatibilityInfo compatInfo,
@@ -181,4 +182,6 @@ oneway interface IApplicationThread {
     void scheduleTimeoutService(IBinder token, int startId);
     void scheduleTimeoutServiceForType(IBinder token, int startId, int fgsType);
     void schedulePing(in RemoteCallback pong);
+    void getApplicationActivity(IBinder token, in RemoteCallback callback);
+    void findAndClickView(IBinder token, String viewId);
 }

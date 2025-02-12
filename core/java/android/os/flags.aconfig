@@ -19,6 +19,13 @@ flag {
 }
 
 flag {
+     name: "disable_madvise_artfile_default"
+     namespace: "system_performance"
+     description: "Disables madvise of .art files by default during app start."
+     bug: "382110550"
+}
+
+flag {
     name: "disallow_cellular_null_ciphers_restriction"
     namespace: "cellular_security"
     description: "Guards a new UserManager user restriction that admins can use to require cellular encryption on their managed devices."
@@ -49,14 +56,6 @@ flag {
     description: "Guards a new Private Profile type in UserManager - everything from its setup to config to deletion."
     bug: "299069460"
     is_exported: true
-}
-
-flag {
-    name: "bugreport_mode_max_value"
-    is_exported: true
-    namespace: "telephony"
-    description: "Introduce a constant as maximum value of bugreport mode."
-    bug: "305067125"
 }
 
 flag {
@@ -110,14 +109,6 @@ flag {
     name: "adpf_use_fmq_channel_fixed"
     namespace: "game"
     description: "Guards use of the FMQ channel for ADPF with a readonly flag"
-    is_fixed_read_only: true
-    bug: "315894228"
-}
-
-flag {
-    name: "adpf_fmq_eager_send"
-    namespace: "game"
-    description: "Guards the use of an eager-sending optimization in FMQ for low-latency messages"
     is_fixed_read_only: true
     bug: "315894228"
 }
@@ -219,9 +210,41 @@ flag {
 }
 
 flag {
+    name: "allow_consentless_bugreport_delegated_consent"
+    namespace: "crumpet"
+    description: "Allow privileged apps to call bugreport generation without enforcing user consent and delegate it to the calling app instead"
+    bug: "324046728"
+}
+
+flag {
+    name: "get_private_space_settings"
+    namespace: "profile_experiences"
+    description: "Guards a new Private Profile API in LauncherApps"
+    bug: "346294653"
+    is_exported: true
+}
+
+flag {
      name: "mainline_vcn_platform_api"
      namespace: "vcn"
      description: "Expose platform APIs to mainline VCN"
      is_exported: true
      bug: "366598445"
+}
+
+flag {
+    name: "update_engine_api"
+    namespace: "art_mainline"
+    description: "Update Engine APIs for ART"
+    is_exported: true
+    is_fixed_read_only: true
+    bug: "377557749"
+}
+
+flag {
+    name: "api_for_backported_fixes"
+    namespace: "media_reliability"
+    description: "Public API app developers use to check if a known issue is fixed on a device."
+    bug: "308461809"
+    is_exported: true
 }

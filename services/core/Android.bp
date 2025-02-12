@@ -37,6 +37,7 @@ filegroup {
         ":framework_native_aidl",
         ":gsiservice_aidl",
         ":installd_aidl",
+        ":mmd_aidl",
         ":storaged_aidl",
         ":vold_aidl",
     ],
@@ -50,7 +51,7 @@ java_library_static {
     ],
 }
 
-genrule {
+java_genrule {
     name: "services.core.protologsrc",
     srcs: [
         ":protolog-impl",
@@ -59,7 +60,7 @@ genrule {
     ],
     tools: ["protologtool"],
     cmd: "$(location protologtool) transform-protolog-calls " +
-        "--protolog-class com.android.internal.protolog.common.ProtoLog " +
+        "--protolog-class com.android.internal.protolog.ProtoLog " +
         "--loggroups-class com.android.internal.protolog.ProtoLogGroup " +
         "--loggroups-jar $(location :protolog-groups) " +
         "--viewer-config-file-path /etc/core.protolog.pb " +
@@ -70,7 +71,7 @@ genrule {
     out: ["services.core.protolog.srcjar"],
 }
 
-genrule {
+java_genrule {
     name: "generate-protolog.json",
     srcs: [
         ":protolog-groups",
@@ -78,7 +79,7 @@ genrule {
     ],
     tools: ["protologtool"],
     cmd: "$(location protologtool) generate-viewer-config " +
-        "--protolog-class com.android.internal.protolog.common.ProtoLog " +
+        "--protolog-class com.android.internal.protolog.ProtoLog " +
         "--loggroups-class com.android.internal.protolog.ProtoLogGroup " +
         "--loggroups-jar $(location :protolog-groups) " +
         "--viewer-config-type json " +
@@ -87,7 +88,7 @@ genrule {
     out: ["services.core.protolog.json"],
 }
 
-genrule {
+java_genrule {
     name: "gen-core.protolog.pb",
     srcs: [
         ":protolog-groups",
@@ -95,7 +96,7 @@ genrule {
     ],
     tools: ["protologtool"],
     cmd: "$(location protologtool) generate-viewer-config " +
-        "--protolog-class com.android.internal.protolog.common.ProtoLog " +
+        "--protolog-class com.android.internal.protolog.ProtoLog " +
         "--loggroups-class com.android.internal.protolog.ProtoLogGroup " +
         "--loggroups-jar $(location :protolog-groups) " +
         "--viewer-config-type proto " +
@@ -147,6 +148,9 @@ java_library_static {
 
         // Java/AIDL sources to be moved out to CrashRecovery module
         ":services-crashrecovery-sources",
+
+        // Indicate whether VCN is in platform or mainline
+        ":vcn-location-sources",
     ],
 
     libs: [
@@ -155,7 +159,7 @@ java_library_static {
         "android.hardware.common-V2-java",
         "android.hardware.light-V2.0-java",
         "android.hardware.gnss-V2-java",
-        "android.hardware.vibrator-V2-java",
+        "android.hardware.vibrator-V3-java",
         "app-compat-annotations",
         "framework-tethering.stubs.module_lib",
         "keepanno-annotations",
@@ -216,14 +220,17 @@ java_library_static {
         "SurfaceFlingerProperties",
         "com.android.sysprop.watchdog",
         "securebox",
+        "switchboard-java",
         "apache-commons-math",
         "battery_saver_flag_lib",
         "notification_flags_lib",
         "power_hint_flags_lib",
         "biometrics_flags_lib",
         "am_flags_lib",
+        "updates_flags_lib",
         "com_android_server_accessibility_flags_lib",
         "//frameworks/libs/systemui:com_android_systemui_shared_flags_lib",
+        "com_android_launcher3_flags_lib",
         "com_android_wm_shell_flags_lib",
         "com.android.server.utils_aconfig-java",
         "service-jobscheduler-deviceidle.flags-aconfig-java",
@@ -232,10 +239,13 @@ java_library_static {
         "stats_flags_lib",
         "core_os_flags_lib",
         "connectivity_flags_lib",
+        "device_config_service_flags_java",
         "dreams_flags_lib",
         "aconfig_new_storage_flags_lib",
         "powerstats_flags_lib",
         "locksettings_flags_lib",
+        "MmdProperties",
+        "mmd_flags_lib",
     ],
     javac_shard_size: 50,
     javacflags: [
@@ -266,9 +276,15 @@ java_genrule {
     out: ["services.core.priorityboosted.jar"],
 }
 
+java_genrule_combiner {
+    name: "services.core.combined",
+    static_libs: ["services.core.priorityboosted"],
+    headers: ["services.core.unboosted"],
+}
+
 java_library {
     name: "services.core",
-    static_libs: ["services.core.priorityboosted"],
+    static_libs: ["services.core.combined"],
 }
 
 java_library_host {
@@ -281,7 +297,7 @@ prebuilt_etc {
     src: "java/com/android/server/location/gnss/gps_debug.conf",
 }
 
-genrule {
+java_genrule {
     name: "services.core.json.gz",
     srcs: [":generate-protolog.json"],
     out: ["services.core.protolog.json.gz"],

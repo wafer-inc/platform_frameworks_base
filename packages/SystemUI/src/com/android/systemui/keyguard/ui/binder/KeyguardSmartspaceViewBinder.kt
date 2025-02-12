@@ -21,7 +21,7 @@ import androidx.constraintlayout.helper.widget.Layer
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import com.android.app.tracing.coroutines.launch
+import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.systemui.keyguard.MigrateClocksToBlueprint
 import com.android.systemui.keyguard.domain.interactor.KeyguardBlueprintInteractor
 import com.android.systemui.keyguard.ui.view.layout.blueprints.transitions.IntraBlueprintTransition.Config
@@ -31,6 +31,7 @@ import com.android.systemui.keyguard.ui.viewmodel.KeyguardSmartspaceViewModel
 import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.res.R
 import com.android.systemui.shared.R as sharedR
+import kotlinx.coroutines.DisposableHandle
 
 object KeyguardSmartspaceViewBinder {
     @JvmStatic
@@ -39,8 +40,8 @@ object KeyguardSmartspaceViewBinder {
         clockViewModel: KeyguardClockViewModel,
         smartspaceViewModel: KeyguardSmartspaceViewModel,
         blueprintInteractor: KeyguardBlueprintInteractor,
-    ) {
-        keyguardRootView.repeatWhenAttached {
+    ): DisposableHandle {
+        return keyguardRootView.repeatWhenAttached {
             repeatOnLifecycle(Lifecycle.State.CREATED) {
                 launch("$TAG#clockViewModel.hasCustomWeatherDataDisplay") {
                     if (!MigrateClocksToBlueprint.isEnabled) return@launch

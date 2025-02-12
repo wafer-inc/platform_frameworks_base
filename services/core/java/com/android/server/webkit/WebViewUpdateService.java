@@ -73,9 +73,9 @@ public class WebViewUpdateService extends SystemService {
     public WebViewUpdateService(Context context) {
         super(context);
         if (updateServiceV2()) {
-            mImpl = new WebViewUpdateServiceImpl2(context, SystemImpl.getInstance());
+            mImpl = new WebViewUpdateServiceImpl2(new SystemImpl(context));
         } else {
-            mImpl = new WebViewUpdateServiceImpl(context, SystemImpl.getInstance());
+            mImpl = new WebViewUpdateServiceImpl(new SystemImpl(context));
         }
     }
 
@@ -84,8 +84,13 @@ public class WebViewUpdateService extends SystemService {
         mWebViewUpdatedReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
+                    final String action = intent.getAction();
+                    if (action == null) {
+                        return;
+                    }
+
                     int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, UserHandle.USER_NULL);
-                    switch (intent.getAction()) {
+                    switch (action) {
                         case Intent.ACTION_PACKAGE_REMOVED:
                             // When a package is replaced we will receive two intents, one
                             // representing the removal of the old package and one representing the

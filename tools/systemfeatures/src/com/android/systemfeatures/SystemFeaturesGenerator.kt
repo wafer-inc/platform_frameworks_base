@@ -53,11 +53,20 @@ import javax.lang.model.element.Modifier
  *     public static ArrayMap<String, FeatureInfo> getReadOnlySystemEnabledFeatures();
  * }
  * </pre>
+ *
+ * <p> If `--metadata-only=true` is set, the resulting class would simply be:
+ * <pre>
+ * package com.foo;
+ * public final class RoSystemFeatures {
+ *     public static String getMethodNameForFeatureName(String featureName);
+  * }
+ * </pre>
  */
 object SystemFeaturesGenerator {
     private const val FEATURE_ARG = "--feature="
     private const val FEATURE_APIS_ARG = "--feature-apis="
     private const val READONLY_ARG = "--readonly="
+    private const val METADATA_ONLY_ARG = "--metadata-only="
     private val PACKAGEMANAGER_CLASS = ClassName.get("android.content.pm", "PackageManager")
     private val CONTEXT_CLASS = ClassName.get("android.content", "Context")
     private val FEATUREINFO_CLASS = ClassName.get("android.content.pm", "FeatureInfo")
@@ -71,7 +80,7 @@ object SystemFeaturesGenerator {
         println("Usage: SystemFeaturesGenerator <outputClassName> [options]")
         println(" Options:")
         println("  --readonly=true|false    Whether to encode features as build-time constants")
-        println("  --feature=\$NAME:\$VER   A feature+version pair, where \$VER can be:")
+        println("  --feature=\$NAME:\$VER     A feature+version pair, where \$VER can be:")
         println("                             * blank/empty == undefined (variable API)")
         println("                             * valid int   == enabled   (constant API)")
         println("                             * UNAVAILABLE == disabled  (constant API)")
@@ -84,17 +93,31 @@ object SystemFeaturesGenerator {
         println("                           runtime passthrough API will be generated, regardless")
         println("                           of the `--readonly` flag. This allows decoupling the")
         println("                           API surface from variations in device feature sets.")
+        println("  --metadata-only=true|false Whether to simply output metadata about the")
+        println("                             generated API surface.")
     }
 
     /** Main entrypoint for build-time system feature codegen. */
     @JvmStatic
     fun main(args: Array<String>) {
+        generate(args, System.out)
+    }
+
+    /**
+     * Simple API entrypoint for build-time system feature codegen.
+     *
+     * Note: Typically this would be implemented in terms of a proper Builder-type input argument,
+     * but it's primarily used for testing as opposed to direct production usage.
+     */
+    @JvmStatic
+    fun generate(args: Array<String>, output: Appendable) {
         if (args.size < 1) {
             usage()
             return
         }
 
         var readonly = false
+        var metadataOnly = false
         var outputClassName: ClassName? = null
         val featureArgs = mutableListOf<FeatureInfo>()
         // We could just as easily hardcode this list, as the static API surface should change
@@ -104,6 +127,8 @@ object SystemFeaturesGenerator {
             when {
                 arg.startsWith(READONLY_ARG) ->
                     readonly = arg.substring(READONLY_ARG.length).toBoolean()
+                arg.startsWith(METADATA_ONLY_ARG) ->
+                    metadataOnly = arg.substring(METADATA_ONLY_ARG.length).toBoolean()
                 arg.startsWith(FEATURE_ARG) -> {
                     featureArgs.add(parseFeatureArg(arg))
                 }
@@ -144,9 +169,13 @@ object SystemFeaturesGenerator {
                 .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
                 .addJavadoc("@hide")
 
-        addFeatureMethodsToClass(classBuilder, features.values)
-        addMaybeFeatureMethodToClass(classBuilder, features.values)
-        addGetFeaturesMethodToClass(classBuilder, features.values)
+        if (metadataOnly) {
+            addMetadataMethodToClass(classBuilder, features.values)
+        } else {
+            addFeatureMethodsToClass(classBuilder, features.values)
+            addMaybeFeatureMethodToClass(classBuilder, features.values)
+            addGetFeaturesMethodToClass(classBuilder, features.values)
+        }
 
         // TODO(b/203143243): Add validation of build vs runtime values to ensure consistency.
         JavaFile.builder(outputClassName.packageName(), classBuilder.build())
@@ -155,7 +184,7 @@ object SystemFeaturesGenerator {
             .addFileComment("This file is auto-generated. DO NOT MODIFY.\n")
             .addFileComment("Args: ${args.joinToString(" \\\n           ")}")
             .build()
-            .writeTo(System.out)
+            .writeTo(output)
     }
 
     /*
@@ -171,12 +200,27 @@ object SystemFeaturesGenerator {
         return when (featureArgs.getOrNull(1)) {
             null, "" -> FeatureInfo(name, null, readonly = false)
             "UNAVAILABLE" -> FeatureInfo(name, null, readonly = true)
-            else -> FeatureInfo(name, featureArgs[1].toIntOrNull(), readonly = true)
+            else -> {
+                val featureVersion =
+                    featureArgs[1].toIntOrNull()
+                        ?: throw IllegalArgumentException(
+                            "Invalid feature version input for $name: ${featureArgs[1]}"
+                        )
+                FeatureInfo(name, featureVersion, readonly = true)
+            }
         }
     }
 
     private fun parseFeatureName(name: String): String =
-        if (name.startsWith("FEATURE_")) name else "FEATURE_$name"
+        when {
+            name.startsWith("android") ->
+                throw IllegalArgumentException(
+                    "Invalid feature name input: \"android\"-namespaced features must be " +
+                    "provided as PackageManager.FEATURE_* suffixes, not raw feature strings."
+                )
+            name.startsWith("FEATURE_") -> name
+            else -> "FEATURE_$name"
+        }
 
     /*
      * Adds per-feature query methods to the class with the form:
@@ -188,11 +232,8 @@ object SystemFeaturesGenerator {
         features: Collection<FeatureInfo>,
     ) {
         for (feature in features) {
-            // Turn "FEATURE_FOO" into "hasFeatureFoo".
-            val methodName =
-                "has" + CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, feature.name)
             val methodBuilder =
-                MethodSpec.methodBuilder(methodName)
+                MethodSpec.methodBuilder(feature.methodName)
                     .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                     .addJavadoc("Check for ${feature.name}.\n\n@hide")
                     .returns(Boolean::class.java)
@@ -222,7 +263,7 @@ object SystemFeaturesGenerator {
                 .returns(Boolean::class.java)
                 .addParameter(CONTEXT_CLASS, "context")
                 .addParameter(String::class.java, "featureName")
-                .addStatement("return context.getPackageManager().hasSystemFeature(featureName, 0)")
+                .addStatement("return context.getPackageManager().hasSystemFeature(featureName)")
                 .build()
         )
     }
@@ -315,5 +356,32 @@ object SystemFeaturesGenerator {
         builder.addMethod(methodBuilder.build())
     }
 
-    private data class FeatureInfo(val name: String, val version: Int?, val readonly: Boolean)
+    /*
+     * Adds a metadata helper method that maps FEATURE_FOO names to their generated hasFeatureFoo()
+     * API counterpart, if defined.
+     */
+    private fun addMetadataMethodToClass(
+        builder: TypeSpec.Builder,
+        features: Collection<FeatureInfo>,
+    ) {
+        val methodBuilder =
+            MethodSpec.methodBuilder("getMethodNameForFeatureName")
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .addJavadoc("@return \"hasFeatureFoo\" if FEATURE_FOO is in the API, else null")
+                .returns(String::class.java)
+                .addParameter(String::class.java, "featureVarName")
+
+        methodBuilder.beginControlFlow("switch (featureVarName)")
+        for (feature in features) {
+            methodBuilder.addStatement("case \$S: return \$S", feature.name, feature.methodName)
+        }
+        methodBuilder.addStatement("default: return null").endControlFlow()
+
+        builder.addMethod(methodBuilder.build())
+    }
+
+    private data class FeatureInfo(val name: String, val version: Int?, val readonly: Boolean) {
+        // Turn "FEATURE_FOO" into "hasFeatureFoo".
+        val methodName get() = "has" + CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, name)
+    }
 }

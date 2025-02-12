@@ -22,6 +22,7 @@
 #include <android-base/parsebool.h>
 #include <android-base/properties.h>
 #include <android/graphics/jni_runtime.h>
+#include <android_os.h>
 #include <android_runtime/AndroidRuntime.h>
 #include <assert.h>
 #include <binder/IBinder.h>
@@ -202,6 +203,7 @@ extern int register_com_android_internal_content_om_OverlayConfig(JNIEnv *env);
 extern int register_com_android_internal_content_om_OverlayManagerImpl(JNIEnv* env);
 extern int register_com_android_internal_net_NetworkUtilsInternal(JNIEnv* env);
 extern int register_com_android_internal_os_ClassLoaderFactory(JNIEnv* env);
+extern int register_com_android_internal_os_DebugStore(JNIEnv* env);
 extern int register_com_android_internal_os_FuseAppLoop(JNIEnv* env);
 extern int register_com_android_internal_os_KernelAllocationStats(JNIEnv* env);
 extern int register_com_android_internal_os_KernelCpuBpfTracking(JNIEnv* env);
@@ -215,6 +217,7 @@ extern int register_com_android_internal_os_Zygote(JNIEnv *env);
 extern int register_com_android_internal_os_ZygoteCommandBuffer(JNIEnv *env);
 extern int register_com_android_internal_os_ZygoteInit(JNIEnv *env);
 extern int register_com_android_internal_security_VerityUtils(JNIEnv* env);
+extern int register_com_android_internal_util_ArrayUtils(JNIEnv* env);
 extern int register_com_android_internal_util_VirtualRefBasePtr(JNIEnv *env);
 extern int register_android_window_WindowInfosListener(JNIEnv* env);
 extern int register_android_window_ScreenCapture(JNIEnv* env);
@@ -885,9 +888,13 @@ int AndroidRuntime::startVm(JavaVM** pJavaVM, JNIEnv** pEnv, bool zygote, bool p
                        madviseWillNeedFileSizeOdex,
                        "-XMadviseWillNeedOdexFileSize:");
 
-    parseRuntimeOption("dalvik.vm.madvise.artfile.size",
-                       madviseWillNeedFileSizeArt,
-                       "-XMadviseWillNeedArtFileSize:");
+    // Historically, dalvik.vm.madvise.artfile.size was set to UINT_MAX by default. With the
+    // disable_madvise_art_default flag rollout, we use this default only when the flag is disabled.
+    // TODO(b/382110550): Remove this property/flag entirely after validating and ramping.
+    const char* madvise_artfile_size_default =
+            android::os::disable_madvise_artfile_default() ? "" : "4294967295";
+    parseRuntimeOption("dalvik.vm.madvise.artfile.size", madviseWillNeedFileSizeArt,
+                       "-XMadviseWillNeedArtFileSize:", madvise_artfile_size_default);
 
     /*
      * Profile related options.
@@ -1607,12 +1614,14 @@ static const RegJNIRec gRegJNI[] = {
         REG_JNI(register_com_android_internal_content_om_OverlayManagerImpl),
         REG_JNI(register_com_android_internal_net_NetworkUtilsInternal),
         REG_JNI(register_com_android_internal_os_ClassLoaderFactory),
+        REG_JNI(register_com_android_internal_os_DebugStore),
         REG_JNI(register_com_android_internal_os_LongArrayMultiStateCounter),
         REG_JNI(register_com_android_internal_os_LongMultiStateCounter),
         REG_JNI(register_com_android_internal_os_Zygote),
         REG_JNI(register_com_android_internal_os_ZygoteCommandBuffer),
         REG_JNI(register_com_android_internal_os_ZygoteInit),
         REG_JNI(register_com_android_internal_security_VerityUtils),
+        REG_JNI(register_com_android_internal_util_ArrayUtils),
         REG_JNI(register_com_android_internal_util_VirtualRefBasePtr),
         REG_JNI(register_android_hardware_Camera),
         REG_JNI(register_android_hardware_camera2_CameraMetadata),

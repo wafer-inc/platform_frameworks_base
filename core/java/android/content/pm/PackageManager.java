@@ -16,6 +16,7 @@
 
 package android.content.pm;
 
+import static android.content.pm.SigningInfo.AppSigningSchemeVersion;
 import static android.media.audio.Flags.FLAG_FEATURE_SPATIAL_AUDIO_HEADTRACKING_LOW_LATENCY;
 
 import static com.android.internal.pm.pkg.parsing.ParsingPackageUtils.PARSE_COLLECT_CERTIFICATES;
@@ -59,6 +60,8 @@ import android.content.IntentFilter;
 import android.content.IntentSender;
 import android.content.pm.PackageInstaller.SessionParams;
 import android.content.pm.dex.ArtManager;
+import android.content.pm.parsing.result.ParseResult;
+import android.content.pm.parsing.result.ParseTypeImpl;
 import android.content.pm.verify.domain.DomainVerificationManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -94,6 +97,7 @@ import android.telephony.ims.RcsUceAdapter;
 import android.telephony.ims.SipDelegateManager;
 import android.util.AndroidException;
 import android.util.Log;
+import android.util.apk.ApkSignatureVerifier;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.pm.parsing.PackageInfoCommonUtils;
@@ -146,6 +150,7 @@ public abstract class PackageManager {
      * This exception is thrown when a given package, application, or component
      * name cannot be found.
      */
+    @android.ravenwood.annotation.RavenwoodKeepWholeClass
     public static class NameNotFoundException extends AndroidException {
         public NameNotFoundException() {
         }
@@ -291,6 +296,10 @@ public abstract class PackageManager {
      * <p>
      * The value of a property will only have a single type, as defined by
      * the property itself.
+     *
+     * <p class="note"><strong>Note:</strong>
+     * In android version {@link Build.VERSION_CODES#VANILLA_ICE_CREAM} and earlier,
+     * the {@code equals} and {@code hashCode} methods for this class may not function as expected.
      */
     public static final class Property implements Parcelable {
         private static final int TYPE_BOOLEAN = 1;
@@ -522,6 +531,40 @@ public abstract class PackageManager {
                 return new Property[size];
             }
         };
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof Property)) {
+                return false;
+            }
+            final Property property = (Property) obj;
+            return mType == property.mType &&
+                    Objects.equals(mName, property.mName) &&
+                    Objects.equals(mClassName, property.mClassName) &&
+                    Objects.equals(mPackageName, property.mPackageName) &&
+                    (mType == TYPE_BOOLEAN ? mBooleanValue == property.mBooleanValue :
+                     mType == TYPE_FLOAT ? Float.compare(mFloatValue, property.mFloatValue) == 0 :
+                     mType == TYPE_INTEGER ? mIntegerValue == property.mIntegerValue :
+                     mType == TYPE_RESOURCE ? mIntegerValue == property.mIntegerValue :
+                     mStringValue.equals(property.mStringValue));
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(mName, mType, mClassName, mPackageName);
+            if (mType == TYPE_BOOLEAN) {
+                result = 31 * result + (mBooleanValue ? 1 : 0);
+            } else if (mType == TYPE_FLOAT) {
+                result = 31 * result + Float.floatToIntBits(mFloatValue);
+            } else if (mType == TYPE_INTEGER) {
+                result = 31 * result + mIntegerValue;
+            } else if (mType == TYPE_RESOURCE) {
+                result = 31 * result + mIntegerValue;
+            } else if (mType == TYPE_STRING) {
+                result = 31 * result + mStringValue.hashCode();
+            }
+            return result;
+        }
     }
 
     /**
@@ -3125,6 +3168,16 @@ public abstract class PackageManager {
 
     /**
      * Feature for {@link #getSystemAvailableFeatures} and
+     * {@link #hasSystemFeature}: The device is capable of ranging with
+     * other devices using channel sounding via Bluetooth Low Energy radio.
+     */
+    @FlaggedApi(com.android.ranging.flags.Flags.FLAG_RANGING_CS_ENABLED)
+    @SdkConstant(SdkConstantType.FEATURE)
+    public static final String FEATURE_BLUETOOTH_LE_CHANNEL_SOUNDING =
+             "android.hardware.bluetooth_le.channel_sounding";
+
+    /**
+     * Feature for {@link #getSystemAvailableFeatures} and
      * {@link #hasSystemFeature}: The device has a camera facing away
      * from the screen.
      */
@@ -4561,6 +4614,7 @@ public abstract class PackageManager {
      * the Android Keystore backed by an isolated execution environment. The version indicates
      * which features are implemented in the isolated execution environment:
      * <ul>
+     * <li>400: Inclusion of module information (via tag MODULE_HASH) in the attestation record.
      * <li>300: Ability to include a second IMEI in the ID attestation record, see
      * {@link android.app.admin.DevicePolicyManager#ID_TYPE_IMEI}.
      * <li>200: Hardware support for Curve 25519 (including both Ed25519 signature generation and
@@ -4594,6 +4648,7 @@ public abstract class PackageManager {
      * StrongBox</a>. If this feature has a version, the version number indicates which features are
      * implemented in StrongBox:
      * <ul>
+     * <li>400: Inclusion of module information (via tag MODULE_HASH) in the attestation record.
      * <li>300: Ability to include a second IMEI in the ID attestation record, see
      * {@link android.app.admin.DevicePolicyManager#ID_TYPE_IMEI}.
      * <li>200: No new features for StrongBox (the Android Keystore environment backed by an
@@ -11439,7 +11494,7 @@ public abstract class PackageManager {
     private static final PropertyInvalidatedCache<ApplicationInfoQuery, ApplicationInfo>
             sApplicationInfoCache =
             new PropertyInvalidatedCache<ApplicationInfoQuery, ApplicationInfo>(
-                    32, PermissionManager.CACHE_KEY_PACKAGE_INFO,
+                    2048, PermissionManager.CACHE_KEY_PACKAGE_INFO,
                     "getApplicationInfo") {
                 @Override
                 public ApplicationInfo recompute(ApplicationInfoQuery query) {
@@ -11540,7 +11595,7 @@ public abstract class PackageManager {
     private static final PropertyInvalidatedCache<PackageInfoQuery, PackageInfo>
             sPackageInfoCache =
             new PropertyInvalidatedCache<PackageInfoQuery, PackageInfo>(
-                    64, PermissionManager.CACHE_KEY_PACKAGE_INFO,
+                    2048, PermissionManager.CACHE_KEY_PACKAGE_INFO,
                     "getPackageInfo") {
                 @Override
                 public PackageInfo recompute(PackageInfoQuery query) {
@@ -11788,5 +11843,53 @@ public abstract class PackageManager {
             String rootTag, int[] attributes) {
         throw new UnsupportedOperationException(
                 "parseServiceMetadata not implemented in subclass");
+    }
+
+    /**
+     * Verifies and returns the
+     * <a href="https://source.android.com/docs/security/features/apksigning">app signing</a>
+     * information of the file at the given path. This operation takes a few milliseconds.
+     *
+     * Unlike {@link #getPackageArchiveInfo(String, PackageInfoFlags)} with {@link
+     * #GET_SIGNING_CERTIFICATES}, this method does not require the file to be a package archive
+     * file.
+     *
+     * @throws SigningInfoException if the verification fails
+     */
+    @FlaggedApi(android.content.pm.Flags.FLAG_CLOUD_COMPILATION_PM)
+    public static @NonNull SigningInfo getVerifiedSigningInfo(@NonNull String path,
+            @AppSigningSchemeVersion int minAppSigningSchemeVersion) throws SigningInfoException {
+        ParseTypeImpl input = ParseTypeImpl.forDefaultParsing();
+        ParseResult<SigningDetails> result =
+                ApkSignatureVerifier.verify(input, path, minAppSigningSchemeVersion);
+        if (result.isError()) {
+            throw new SigningInfoException(
+                    result.getErrorCode(), result.getErrorMessage(), result.getException());
+        }
+        return new SigningInfo(result.getResult());
+    }
+
+    /**
+     * As the generated feature count is useful for classes that may not be compiled in the same
+     * annotation processing unit as PackageManager, we redeclare it here for visibility.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static final int SDK_FEATURE_COUNT =
+            com.android.internal.pm.SystemFeaturesMetadata.SDK_FEATURE_COUNT;
+
+    /**
+     * Returns a stable index for PackageManager-defined features.
+     *
+     * <p> Similar to {@link #SDK_FEATURE_COUNT}, we redeclare this utility method generated by the
+     * annotation processor for internal visibility.
+     *
+     * @return index in [0, {@link #SDK_FEATURECOUNT}) for PackageManager-defined features, else -1.
+     * @hide
+     */
+    @VisibleForTesting
+    public static int maybeGetSdkFeatureIndex(String featureName) {
+        return com.android.internal.pm.SystemFeaturesMetadata.maybeGetSdkFeatureIndex(featureName);
     }
 }

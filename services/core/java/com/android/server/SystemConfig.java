@@ -670,6 +670,17 @@ public class SystemConfig {
     }
 
     private void readAllPermissions() {
+        readAllPermissionsFromXml();
+        readAllPermissionsFromEnvironment();
+
+        // Apply global feature removal last, after all features have been read.
+        // This only needs to happen once.
+        for (String featureName : mUnavailableFeatures) {
+            removeFeature(featureName);
+        }
+    }
+
+    private void readAllPermissionsFromXml() {
         final XmlPullParser parser = Xml.newPullParser();
 
         // Read configuration from system
@@ -1308,6 +1319,7 @@ public class SystemConfig {
                         }
                         XmlUtils.skipCurrentTag(parser);
                     } break;
+                    case "disabled-in-sku":
                     case "disabled-until-used-preinstalled-carrier-app": {
                         if (allowAppConfigs) {
                             String pkgname = parser.getAttributeValue(null, "package");
@@ -1318,6 +1330,24 @@ public class SystemConfig {
                                                 + parser.getPositionDescription());
                             } else {
                                 mDisabledUntilUsedPreinstalledCarrierApps.add(pkgname);
+                            }
+                        } else {
+                            logNotAllowedInPartition(name, permFile, parser);
+                        }
+                        XmlUtils.skipCurrentTag(parser);
+                    } break;
+                    case "enabled-in-sku-override": {
+                        if (allowAppConfigs) {
+                            String pkgname = parser.getAttributeValue(null, "package");
+                            if (pkgname == null) {
+                                Slog.w(TAG,
+                                        "<" + name + "> without "
+                                                + "package in " + permFile + " at "
+                                                + parser.getPositionDescription());
+                            } else if (!mDisabledUntilUsedPreinstalledCarrierApps.remove(pkgname)) {
+                                Slog.w(TAG,
+                                        "<" + name + "> packagename:" + pkgname + " not included"
+                                                + "in disabled-in-sku");
                             }
                         } else {
                             logNotAllowedInPartition(name, permFile, parser);
@@ -1732,7 +1762,13 @@ public class SystemConfig {
         } finally {
             IoUtils.closeQuietly(permReader);
         }
+    }
 
+    // Add features or permission dependent on global system properties (as
+    // opposed to XML permission files).
+    // This only needs to be called once after all features have been parsed
+    // from various partition/apex sources.
+    private void readAllPermissionsFromEnvironment() {
         // Some devices can be field-converted to FBE, so offer to splice in
         // those features if not already defined by the static config
         if (StorageManager.isFileEncrypted()) {
@@ -1772,10 +1808,6 @@ public class SystemConfig {
             } else if (isKernelVersionAtLeast(4, 19)) {
                 addFeature(PackageManager.FEATURE_EROFS_LEGACY, 0);
             }
-        }
-
-        for (String featureName : mUnavailableFeatures) {
-            removeFeature(featureName);
         }
     }
 

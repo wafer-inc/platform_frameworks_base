@@ -33,12 +33,14 @@ import android.util.proto.ProtoInputStream;
 import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.providers.settings.Flags;
 
 import android.aconfigd.Aconfigd.StorageRequestMessage;
 import android.aconfigd.Aconfigd.StorageRequestMessages;
 import android.aconfigd.Aconfigd.StorageReturnMessage;
 import android.aconfigd.Aconfigd.StorageReturnMessages;
 import static com.android.aconfig_new_storage.Flags.enableAconfigStorageDaemon;
+import static com.android.aconfig_new_storage.Flags.enableAconfigdFromMainline;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -51,6 +53,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
+import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 
 /**
  * Maps system settings to system properties.
@@ -109,6 +113,7 @@ public class SettingsToPropertiesMapper {
         DeviceConfig.NAMESPACE_LMKD_NATIVE,
         DeviceConfig.NAMESPACE_MEDIA_NATIVE,
         DeviceConfig.NAMESPACE_MGLRU_NATIVE,
+        DeviceConfig.NAMESPACE_MMD_NATIVE,
         DeviceConfig.NAMESPACE_NETD_NATIVE,
         DeviceConfig.NAMESPACE_NNAPI_NATIVE,
         DeviceConfig.NAMESPACE_PROFCOLLECT_NATIVE_BOOT,
@@ -136,6 +141,8 @@ public class SettingsToPropertiesMapper {
     static final String[] sDeviceConfigAconfigScopes = new String[] {
         "accessibility",
         "android_core_networking",
+        "android_health_services",
+        "android_sdk",
         "android_stylus",
         "aoc",
         "app_widgets",
@@ -173,6 +180,7 @@ public class SettingsToPropertiesMapper {
         "haptics",
         "hardware_backed_security_mainline",
         "input",
+        "incremental",
         "llvm_and_toolchains",
         "lse_desktop_experience",
         "machine_learning",
@@ -198,6 +206,7 @@ public class SettingsToPropertiesMapper {
         "pixel_watch",
         "platform_compat",
         "platform_security",
+        "pixel_watch_debug_trace",
         "pmw",
         "power",
         "preload_safety",
@@ -209,8 +218,10 @@ public class SettingsToPropertiesMapper {
         "safety_center",
         "sensors",
         "spoon",
+        "stability",
         "statsd",
         "system_performance",
+        "system_sw_battery",
         "system_sw_touch",
         "system_sw_usb",
         "test_suites",
@@ -227,7 +238,6 @@ public class SettingsToPropertiesMapper {
         "wear_connectivity",
         "wear_esim_carriers",
         "wear_frameworks",
-        "wear_health_services",
         "wear_media",
         "wear_offload",
         "wear_security",
@@ -342,7 +352,7 @@ public class SettingsToPropertiesMapper {
         // add sys prop sync callback for staged flag values
         DeviceConfig.addOnPropertiesChangedListener(
             NAMESPACE_REBOOT_STAGING,
-            AsyncTask.THREAD_POOL_EXECUTOR,
+            newSingleThreadScheduledExecutor(),
             (DeviceConfig.Properties properties) -> {
 
               for (String flagName : properties.getKeyset()) {
@@ -362,6 +372,13 @@ public class SettingsToPropertiesMapper {
                   String propertyName = "next_boot." + makeAconfigFlagPropertyName(
                       actualNamespace, actualFlagName);
 
+                  if (Flags.supportLocalOverridesSysprops()) {
+                    // Don't propagate if there is a local override.
+                    String overrideName = actualNamespace + ":" + actualFlagName;
+                    if (DeviceConfig.getProperty(NAMESPACE_LOCAL_OVERRIDES, overrideName) != null) {
+                      continue;
+                    }
+                  }
                   setProperty(propertyName, flagValue);
               }
 
@@ -380,6 +397,42 @@ public class SettingsToPropertiesMapper {
                 if (enableAconfigStorageDaemon()) {
                     setLocalOverridesInNewStorage(properties);
                 }
+
+                if (Flags.supportLocalOverridesSysprops()) {
+                  String overridesNamespace = properties.getNamespace();
+                  for (String key : properties.getKeyset()) {
+                    String realNamespace = key.split(":")[0];
+                    String realFlagName = key.split(":")[1];
+                    String aconfigPropertyName =
+                        makeAconfigFlagPropertyName(realNamespace, realFlagName);
+                    if (aconfigPropertyName == null) {
+                      logErr("unable to construct system property for " + realNamespace + "/"
+                        + key);
+                      return;
+                    }
+
+                    if (properties.getString(key, null) == null) {
+                      String deviceConfigValue =
+                              DeviceConfig.getProperty(realNamespace, realFlagName);
+                      String stagedDeviceConfigValue =
+                              DeviceConfig.getProperty(NAMESPACE_REBOOT_STAGING,
+                                              realNamespace + "*" + realFlagName);
+
+                      setProperty(aconfigPropertyName, deviceConfigValue);
+                      if (stagedDeviceConfigValue == null) {
+                        setProperty("next_boot." + aconfigPropertyName, deviceConfigValue);
+                      } else {
+                        setProperty("next_boot." + aconfigPropertyName, stagedDeviceConfigValue);
+                      }
+                    } else {
+                      // Otherwise, propagate the override to sysprops.
+                      setProperty(aconfigPropertyName, properties.getString(key, null));
+                      // If there's a staged value, make sure it's the override value.
+                      setProperty("next_boot." + aconfigPropertyName,
+                                properties.getString(key, null));
+                    }
+                  }
+                }
         });
     }
 
@@ -388,15 +441,38 @@ public class SettingsToPropertiesMapper {
      * @param requests: request proto output stream
      * @return aconfigd socket return as proto input stream
      */
-    static ProtoInputStream sendAconfigdRequests(ProtoOutputStream requests) {
+    static void sendAconfigdRequests(ProtoOutputStream requests) {
+        ProtoInputStream returns = sendAconfigdRequests("aconfigd_system", requests);
+        try {
+          parseAndLogAconfigdReturn(returns);
+        } catch (IOException ioe) {
+          logErr("failed to parse aconfigd return", ioe);
+        }
+        if (enableAconfigdFromMainline()) {
+            returns = sendAconfigdRequests("aconfigd_mainline", requests);
+            try {
+              parseAndLogAconfigdReturn(returns);
+            } catch (IOException ioe) {
+              logErr("failed to parse aconfigd return", ioe);
+            }
+        }
+    }
+
+    /**
+     * apply flag local override in aconfig new storage
+     * @param socketName: the socket to send to
+     * @param requests: request proto output stream
+     * @return aconfigd socket return as proto input stream
+     */
+    static ProtoInputStream sendAconfigdRequests(String socketName, ProtoOutputStream requests) {
         // connect to aconfigd socket
         LocalSocket client = new LocalSocket();
-        try{
+        try {
             client.connect(new LocalSocketAddress(
-                "aconfigd", LocalSocketAddress.Namespace.RESERVED));
-            Slog.d(TAG, "connected to aconfigd socket");
+                socketName, LocalSocketAddress.Namespace.RESERVED));
+            Slog.d(TAG, "connected to " + socketName + " socket");
         } catch (IOException ioe) {
-            logErr("failed to connect to aconfigd socket", ioe);
+            logErr("failed to connect to " + socketName + " socket", ioe);
             return null;
         }
 
@@ -415,9 +491,9 @@ public class SettingsToPropertiesMapper {
             byte[] requests_bytes = requests.getBytes();
             outputStream.writeInt(requests_bytes.length);
             outputStream.write(requests_bytes, 0, requests_bytes.length);
-            Slog.d(TAG, "flag override requests sent to aconfigd");
+            Slog.d(TAG, "flag override requests sent to " + socketName);
         } catch (IOException ioe) {
-            logErr("failed to send requests to aconfigd", ioe);
+            logErr("failed to send requests to " + socketName, ioe);
             return null;
         }
 
@@ -425,10 +501,10 @@ public class SettingsToPropertiesMapper {
         try {
             int num_bytes = inputStream.readInt();
             ProtoInputStream returns = new ProtoInputStream(inputStream);
-            Slog.d(TAG, "received " + num_bytes + " bytes back from aconfigd");
+            Slog.d(TAG, "received " + num_bytes + " bytes back from " + socketName);
             return returns;
         } catch (IOException ioe) {
-            logErr("failed to read requests return from aconfigd", ioe);
+            logErr("failed to read requests return from " + socketName, ioe);
             return null;
         }
     }
@@ -446,8 +522,26 @@ public class SettingsToPropertiesMapper {
       proto.write(StorageRequestMessage.FlagOverrideMessage.FLAG_NAME, flagName);
       proto.write(StorageRequestMessage.FlagOverrideMessage.FLAG_VALUE, flagValue);
       proto.write(StorageRequestMessage.FlagOverrideMessage.OVERRIDE_TYPE, isLocal
-                ? StorageRequestMessage.LOCAL_ON_REBOOT
+                ? StorageRequestMessage.LOCAL_IMMEDIATE
                 : StorageRequestMessage.SERVER_ON_REBOOT);
+      proto.end(msgToken);
+      proto.end(msgsToken);
+    }
+
+    /**
+     * Send a request to aconfig storage to remove a flag local override.
+     *
+     * @param proto
+     * @param packageName the package of the flag
+     * @param flagName the name of the flag
+     */
+    static void writeFlagOverrideRemovalRequest(
+        ProtoOutputStream proto, String packageName, String flagName) {
+      long msgsToken = proto.start(StorageRequestMessages.MSGS);
+      long msgToken = proto.start(StorageRequestMessage.REMOVE_LOCAL_OVERRIDE_MESSAGE);
+      proto.write(StorageRequestMessage.RemoveLocalOverrideMessage.PACKAGE_NAME, packageName);
+      proto.write(StorageRequestMessage.RemoveLocalOverrideMessage.FLAG_NAME, flagName);
+      proto.write(StorageRequestMessage.RemoveLocalOverrideMessage.REMOVE_ALL, false);
       proto.end(msgToken);
       proto.end(msgsToken);
     }
@@ -497,8 +591,15 @@ public class SettingsToPropertiesMapper {
         ProtoOutputStream requests = new ProtoOutputStream();
         for (String flagName : props.getKeyset()) {
             String flagValue = props.getString(flagName, null);
-            if (flagName == null || flagValue == null) {
-                continue;
+
+            if (Flags.syncLocalOverridesRemovalNewStorage()) {
+                if (flagName == null) {
+                    continue;
+                }
+            } else {
+                if (flagName == null || flagValue == null) {
+                    continue;
+                }
             }
 
             int idx = flagName.indexOf(":");
@@ -515,7 +616,13 @@ public class SettingsToPropertiesMapper {
             }
             String packageName = fullFlagName.substring(0, idx);
             String realFlagName = fullFlagName.substring(idx+1);
-            writeFlagOverrideRequest(requests, packageName, realFlagName, flagValue, true);
+
+            if (Flags.syncLocalOverridesRemovalNewStorage() && flagValue == null) {
+              writeFlagOverrideRemovalRequest(requests, packageName, realFlagName);
+            } else {
+              writeFlagOverrideRequest(requests, packageName, realFlagName, flagValue, true);
+            }
+
             ++num_requests;
         }
 
@@ -523,15 +630,8 @@ public class SettingsToPropertiesMapper {
           return;
         }
 
-        // send requests to aconfigd and obtain the return byte buffer
-        ProtoInputStream returns = sendAconfigdRequests(requests);
-
-        // deserialize back using proto input stream
-        try {
-          parseAndLogAconfigdReturn(returns);
-        } catch (IOException ioe) {
-            logErr("failed to parse aconfigd return", ioe);
-        }
+        // send requests to aconfigd
+        sendAconfigdRequests(requests);
     }
 
     public static SettingsToPropertiesMapper start(ContentResolver contentResolver) {
@@ -641,15 +741,8 @@ public class SettingsToPropertiesMapper {
           return;
         }
 
-        // send requests to aconfigd and obtain the return
-        ProtoInputStream returns = sendAconfigdRequests(requests);
-
-        // deserialize back using proto input stream
-        try {
-            parseAndLogAconfigdReturn(returns);
-        } catch (IOException ioe) {
-            logErr("failed to parse aconfigd return", ioe);
-        }
+        // send requests to aconfigd
+        sendAconfigdRequests(requests);
     }
 
     /**

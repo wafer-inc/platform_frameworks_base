@@ -180,6 +180,7 @@
     <protected-broadcast android:name="android.bluetooth.device.action.CONNECTION_ACCESS_CANCEL" />
     <protected-broadcast android:name="android.bluetooth.device.action.CONNECTION_ACCESS_REQUEST" />
     <protected-broadcast android:name="android.bluetooth.device.action.KEY_MISSING" />
+    <protected-broadcast android:name="android.bluetooth.device.action.ENCRYPTION_CHANGE" />
     <protected-broadcast android:name="android.bluetooth.device.action.SDP_RECORD" />
     <protected-broadcast android:name="android.bluetooth.device.action.BATTERY_LEVEL_CHANGED" />
     <protected-broadcast android:name="android.bluetooth.device.action.REMOTE_ISSUE_OCCURRED" />
@@ -834,7 +835,6 @@
     <protected-broadcast android:name="android.intent.action.PROFILE_REMOVED" />
     <protected-broadcast android:name="com.android.internal.telephony.cat.SMS_SENT_ACTION" />
     <protected-broadcast android:name="com.android.internal.telephony.cat.SMS_DELIVERY_ACTION" />
-    <protected-broadcast android:name="com.android.internal.telephony.data.ACTION_RETRY" />
     <protected-broadcast android:name="android.companion.virtual.action.VIRTUAL_DEVICE_REMOVED" />
     <protected-broadcast android:name="com.android.internal.intent.action.FLASH_NOTIFICATION_START_PREVIEW" />
     <protected-broadcast android:name="com.android.internal.intent.action.FLASH_NOTIFICATION_STOP_PREVIEW" />
@@ -847,6 +847,8 @@
     <protected-broadcast android:name="android.intent.action.PROFILE_UNAVAILABLE" />
     <protected-broadcast android:name="android.app.action.CONSOLIDATED_NOTIFICATION_POLICY_CHANGED" />
     <protected-broadcast android:name="android.intent.action.MAIN_USER_LOCKSCREEN_KNOWLEDGE_FACTOR_CHANGED" />
+    <protected-broadcast android:name="com.android.uwb.uwbcountrycode.GEOCODE_RETRY" />
+    <protected-broadcast android:name="android.telephony.action.ACTION_SATELLITE_SUBSCRIBER_ID_LIST_CHANGED" />
 
     <!-- ====================================================================== -->
     <!--                          RUNTIME PERMISSIONS                           -->
@@ -2406,6 +2408,16 @@
                 android:label="@string/permlab_nearby_wifi_devices"
                 android:protectionLevel="dangerous" />
 
+    <!-- Required to be able to range to devices using generic ranging module.
+         @FlaggedApi("android.permission.flags.ranging_permission_enabled")
+         <p>Protection level: dangerous -->
+    <permission android:name="android.permission.RANGING"
+        android:permissionGroup="android.permission-group.UNDEFINED"
+        android:description="@string/permdesc_ranging"
+        android:label="@string/permlab_ranging"
+        android:protectionLevel="dangerous"
+        android:featureFlag="android.permission.flags.ranging_permission_enabled"/>
+
     <!-- @SystemApi @TestApi Allows an application to suspend other apps, which will prevent the
          user from using them until they are unsuspended.
          @hide
@@ -2613,6 +2625,15 @@
     -->
     <permission android:name="android.permission.VIBRATE_SYSTEM_CONSTANTS"
         android:protectionLevel="signature" />
+
+    <!-- @SystemApi Allows access to perform vendor effects in the vibrator.
+         <p>Protection level: signature
+         @FlaggedApi("android.os.vibrator.vendor_vibration_effects")
+         @hide
+    -->
+    <permission android:name="android.permission.VIBRATE_VENDOR_EFFECTS"
+        android:protectionLevel="signature|privileged"
+        android:featureFlag="android.os.vibrator.vendor_vibration_effects" />
 
     <!-- @SystemApi Allows access to the vibrator state.
          <p>Protection level: signature
@@ -3760,7 +3781,6 @@
         privileged app such as the Assistant app.
         <p>Protection level: internal|role
         <p>Intended for use by the DEVICE_POLICY_MANAGEMENT role only.
-        @FlaggedApi("android.app.admin.flags.assist_content_user_restriction_enabled")
     -->
     <permission android:name="android.permission.MANAGE_DEVICE_POLICY_ASSIST_CONTENT"
         android:protectionLevel="internal|role" />
@@ -3831,7 +3851,6 @@
     <!-- Allows an application to use audit logging API.
         @hide
         @SystemApi
-        @FlaggedApi("android.app.admin.flags.security_log_v2_enabled")
     -->
     <permission android:name="android.permission.MANAGE_DEVICE_POLICY_AUDIT_LOGGING"
         android:protectionLevel="internal|role" />
@@ -4022,7 +4041,6 @@
         APIs protected by this permission on users different to the calling user.
         <p>Protection level: internal|role
         <p>Intended for use by the DEVICE_POLICY_MANAGEMENT role only.
-        @FlaggedApi("android.app.admin.flags.esim_management_enabled")
     -->
     <permission android:name="android.permission.MANAGE_DEVICE_POLICY_MANAGED_SUBSCRIPTIONS"
         android:protectionLevel="internal|role" />
@@ -4030,7 +4048,6 @@
     <!-- Allows an application to manage policy related to block package uninstallation.
         <p>Protection level: internal|role
         <p>Intended for use by the DEVICE_POLICY_MANAGEMENT role only.
-        @FlaggedApi("android.app.admin.flags.dedicated_device_control_api_enabled")
     -->
     <permission android:name="android.permission.MANAGE_DEVICE_POLICY_BLOCK_UNINSTALL"
         android:protectionLevel="internal|role" />
@@ -4038,7 +4055,6 @@
     <!-- Allows an application to manage policy related to camera toggle.
         <p>Protection level: internal|role
         <p>Intended for use by the DEVICE_POLICY_MANAGEMENT role only.
-        @FlaggedApi("android.app.admin.flags.dedicated_device_control_api_enabled")
     -->
     <permission android:name="android.permission.MANAGE_DEVICE_POLICY_CAMERA_TOGGLE"
         android:protectionLevel="internal|role" />
@@ -4046,7 +4062,6 @@
     <!-- Allows an application to manage policy related to microphone toggle.
         <p>Protection level: internal|role
         <p>Intended for use by the DEVICE_POLICY_MANAGEMENT role only.
-        @FlaggedApi("android.app.admin.flags.dedicated_device_control_api_enabled")
     -->
     <permission android:name="android.permission.MANAGE_DEVICE_POLICY_MICROPHONE_TOGGLE"
         android:protectionLevel="internal|role" />
@@ -5418,7 +5433,8 @@
     <permission android:name="android.permission.BIND_VISUAL_QUERY_DETECTION_SERVICE"
         android:protectionLevel="signature" />
 
-    <!-- Allows an application to subscribe to keyguard locked (i.e., showing) state.
+    <!-- Allows an application to subscribe to device locked and keyguard locked (i.e., showing)
+        state.
          <p>Protection level: signature|role
          <p>Intended for use by ROLE_ASSISTANT and signature apps only.
     -->
@@ -5596,6 +5612,17 @@
     -->
     <permission android:name="android.permission.BIND_TV_INPUT"
         android:protectionLevel="signature|privileged" />
+
+    <!-- This permission is required among systems services to always keep the
+         binding with TvInputManagerService.
+         <p>This should only be used by the OEM TvInputService.
+         @FlaggedApi("android.media.tv.flags.tif_unbind_inactive_tis")
+         <p>Protection level: signature|privileged|vendorPrivileged
+         @hide
+    -->
+    <permission android:name="android.permission.ALWAYS_BOUND_TV_INPUT"
+        android:protectionLevel="signature|privileged|vendorPrivileged"
+        android:featureFlag="android.media.tv.flags.tif_unbind_inactive_tis"/>
 
     <!-- Must be required by a {@link android.media.tv.interactive.TvInteractiveAppService}
          to ensure that only the system can bind to it.
@@ -6093,9 +6120,8 @@
                 android:description="@string/permdesc_deliverCompanionMessages"
                 android:protectionLevel="normal" />
 
-    <!-- @hide @FlaggedApi("android.companion.flags.companion_transport_apis")
-         Allows an application to send and receive messages via CDM transports.
-    -->
+    <!-- Allows an application to send and receive messages via CDM transports.
+         @hide -->
     <permission android:name="android.permission.USE_COMPANION_TRANSPORTS"
         android:protectionLevel="signature" />
 
@@ -6802,6 +6828,13 @@
     <!-- @SystemApi @hide Allows an application to manage carrier subscription plans. -->
     <permission android:name="android.permission.MANAGE_SUBSCRIPTION_PLANS"
         android:protectionLevel="signature|privileged" />
+
+    <!-- @SystemApi @hide Allows for reading subscription plan fields for status and end date.
+         @FlaggedApi(com.android.internal.telephony.flags.Flags.FLAG_SUBSCRIPTION_PLAN_ALLOW_STATUS_AND_END_DATE)
+    -->
+    <permission android:name="android.permission.READ_SUBSCRIPTION_PLANS"
+        android:protectionLevel="signature|privileged"
+        android:featureFlag="com.android.internal.telephony.flags.subscription_plan_allow_status_and_end_date" />
 
     <!-- C2DM permission.
          @hide Used internally.
@@ -7635,7 +7668,8 @@
     <permission android:name="android.permission.BIND_CARRIER_MESSAGING_CLIENT_SERVICE"
         android:protectionLevel="signature" />
 
-    <!-- Must be required by an {@link android.service.watchdog.ExplicitHealthCheckService} to
+    <!-- @FlaggedApi(android.crashrecovery.flags.Flags.FLAG_ENABLE_CRASHRECOVERY) @SystemApi
+         Must be required by an {@link android.service.watchdog.ExplicitHealthCheckService} to
          ensure that only the system can bind to it.
          @hide This is not a third-party API (intended for OEMs and system apps).
     -->
@@ -7996,6 +8030,41 @@
     <permission android:name="android.permission.EXECUTE_APP_ACTION"
                 android:protectionLevel="internal|role" />
 
+    <!-- Must be required by an {@link android.app.appfunctions.AppFunctionService},
+         to ensure that only the system can bind to it.
+         <p>Protection level: signature
+         @FlaggedApi("android.app.appfunctions.flags.enable_app_function_manager")  -->
+    <permission android:name="android.permission.BIND_APP_FUNCTION_SERVICE"
+        android:featureFlag="android.app.appfunctions.flags.enable_app_function_manager"
+        android:protectionLevel="signature" />
+
+    <!-- @SystemApi Allows a trusted application to perform actions on behalf of users inside of
+         applications with privacy guarantees from the system.
+         <p>This permission is currently only granted to system packages in the
+         {@link android.app.role.SYSTEM_UI_INTELLIGENCE} role which complies with privacy
+         requirements outlined in the Android CDD section "9.8.6 Content Capture".
+         <p>Apps are not able to opt-out from caller having this permission.
+         <p>Protection level: internal|role
+         @hide
+         @FlaggedApi("android.app.appfunctions.flags.enable_app_function_manager")  -->
+    <permission android:name="android.permission.EXECUTE_APP_FUNCTIONS_TRUSTED"
+        android:featureFlag="android.app.appfunctions.flags.enable_app_function_manager"
+        android:protectionLevel="internal|role" />
+
+    <!-- @SystemApi Allows an application to perform actions on behalf of users inside of
+         applications.
+         <p>This permission is currently only granted to preinstalled / system apps having the
+         {@link android.app.role.ASSISTANT} role.
+         <p>Apps contributing app functions can opt to disallow callers with this permission,
+         limiting to only callers with {@link android.permission.EXECUTE_APP_FUNCTIONS_TRUSTED}
+         instead.
+         <p>Protection level: internal|role
+         @hide
+         @FlaggedApi("android.app.appfunctions.flags.enable_app_function_manager")  -->
+    <permission android:name="android.permission.EXECUTE_APP_FUNCTIONS"
+        android:featureFlag="android.app.appfunctions.flags.enable_app_function_manager"
+        android:protectionLevel="internal|role" />
+
     <!-- Allows an application to display its suggestions using the autofill framework.
          <p>For now, this permission is only granted to the Browser application.
          <p>Protection level: internal|role
@@ -8118,6 +8187,13 @@
     <permission android:name="android.permission.MONITOR_STICKY_MODIFIER_STATE"
                 android:protectionLevel="signature" />
 
+    <!-- Allows low-level access to manage key gestures.
+         <p>Not for use by third-party applications.
+         @hide -->
+    <permission android:name="android.permission.MANAGE_KEY_GESTURES"
+                android:protectionLevel="signature"
+                android:featureFlag="com.android.hardware.input.manage_key_gestures" />
+
     <uses-permission android:name="android.permission.HANDLE_QUERY_PACKAGE_RESTART" />
 
     <!-- Allows financed device kiosk apps to perform actions on the Device Lock service
@@ -8225,6 +8301,20 @@
          <p>Not for use by third-party applications. -->
     <permission android:name="android.permission.CAPTURE_CONSENTLESS_BUGREPORT_ON_USERDEBUG_BUILD"
                 android:protectionLevel="internal|appop" />
+
+    <!-- @hide @SystemApi
+         @FlaggedApi(android.os.Flags.FLAG_ALLOW_CONSENTLESS_BUGREPORT_DELEGATED_CONSENT)
+         Allows system applications to capture bugreport directly without consent dialog when using
+         the bugreporting API, and instead use the applications-owned consent page.
+         <p>The application still needs to hold {@link android.permission.DUMP} permission and be
+         bugreport-whitelisted to be able to capture a bugreport using the bugreporting API in the
+         first place.
+         <p>Protection level: signature|privileged
+         <p>Not for use by third-party applications. -->
+    <permission
+        android:name="android.permission.CAPTURE_CONSENTLESS_BUGREPORT_DELEGATED_CONSENT"
+        android:protectionLevel="signature|privileged"
+        android:featureFlag="android.os.allow_consentless_bugreport_delegated_consent" />
 
     <!-- @SystemApi Allows to call APIs that log process lifecycle events
          @hide -->
@@ -8820,6 +8910,11 @@
                 android:permission="android.permission.BIND_JOB_SERVICE" >
         </service>
 
+        <service android:name="com.android.server.memory.ZramMaintenance"
+                 android:exported="false"
+                 android:permission="android.permission.BIND_JOB_SERVICE" >
+        </service>
+
         <service android:name="com.android.server.ZramWriteback"
                  android:exported="false"
                  android:permission="android.permission.BIND_JOB_SERVICE" >
@@ -8891,7 +8986,11 @@
                  android:permission="android.permission.BIND_JOB_SERVICE" >
         </service>
 
-        <service android:name="com.android.server.profcollect.ProfcollectForwardingService$ProfcollectBGJobService"
+        <service android:name="com.android.server.profcollect.ProfcollectForwardingService$PeriodicTraceJobService"
+                 android:permission="android.permission.BIND_JOB_SERVICE" >
+        </service>
+
+        <service android:name="com.android.server.profcollect.ProfcollectForwardingService$ReportProcessJobService"
                  android:permission="android.permission.BIND_JOB_SERVICE" >
         </service>
 
