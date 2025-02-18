@@ -14,3 +14,6 @@ steps:
   - name: sync repo
     workdir: aosp
     cmd: repo sync -c -j32
+  - name: build os
+    workdir: aosp
+    cmd: source build/envsetup.sh && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug && m -j32
