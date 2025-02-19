@@ -14,6 +14,9 @@ steps:
   - name: sync repo
     workdir: aosp
     cmd: repo sync -c -j32
+  - name: update envsetup permissions
+    workdir: aosp
+    cmd: chmod 764 ./build/envsetup.sh
   - name: build os
     workdir: aosp
     cmd: ./build/envsetup.sh && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug && m -j32
