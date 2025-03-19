@@ -4,12 +4,12 @@ build:
   executes:
     - label: make os directory
       cmd: |
-        mkdir aosp
+        mkdir -p aosp
     - label: setup
       workdir: aosp
       cmd: |
         repo init --partial-clone -b main -u https://android.googlesource.com/platform/manifest
-        mkdir ./.repo/local_manifests
+        mkdir -p .repo/local_manifests
         uv run python ../generate_manifests.py "./aosp/.repo/local_manifests"
     - label: build
       workdir: aosp
