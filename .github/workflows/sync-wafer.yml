@@ -30,8 +30,8 @@ jobs:
 
       - name: Fetch all branches
         run: |
-          git fetch upstream
-          git fetch origin
+          git fetch upstream --tags
+          git fetch origin --tags
 
       - name: Merge upstream main into wafer
         run: |
@@ -45,7 +45,5 @@ jobs:
           git -c core.editor=true merge --continue
 
       - name: Push changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: wafer
+        run: |
+          git push origin wafer --follow-tags
