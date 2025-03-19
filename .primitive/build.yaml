@@ -1,22 +1,20 @@
-name: Build
-steps:
-  - name: create aosp directory
-    cmd: mkdir aosp
-  - name: download aosp
-    workdir: aosp
-    cmd: repo init --partial-clone -b main -u https://android.googlesource.com/platform/manifest
-  - name: create local manifests directory
-    workdir: aosp/.repo
-    cmd: mkdir local_manifests
-  - name: generate manifests
-    workdir: .
-    cmd: uv run python generate_manifests.py "./aosp/.repo/local_manifests"
-  - name: sync repo
-    workdir: aosp
-    cmd: repo sync -c -j32
-  - name: update envsetup permissions
-    workdir: aosp
-    cmd: chmod 764 ./build/make/envsetup.sh
-  - name: build os
-    workdir: aosp
-    cmd: ./build/make/envsetup.sh && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug && m -j32
+Build:
+  requires:
+    - devbox
+  executes:
+    - label: make os directory
+      cmd: |
+        mkdir aosp
+    - label: setup
+      workdir: aosp
+      cmd: |
+        repo init --partial-clone -b main -u https://android.googlesource.com/platform/manifest
+        mkdir ./.repo/local_manifests
+        uv run python ../generate_manifests.py "./aosp/.repo/local_manifests"
+    - label: build
+      workdir: aosp
+      cmd: |
+        repo sync -c -j32
+        source build/envsetup.sh
+        lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
+        m -j32
