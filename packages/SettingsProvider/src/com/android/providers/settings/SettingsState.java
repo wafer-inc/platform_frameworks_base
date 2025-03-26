@@ -158,6 +158,7 @@ final class SettingsState {
 
     private static final List<String> sAconfigTextProtoFilesOnDevice = List.of(
             "/system/etc/aconfig_flags.pb",
+            "/system_ext/etc/aconfig_flags.pb",
             "/product/etc/aconfig_flags.pb",
             "/vendor/etc/aconfig_flags.pb");
 
@@ -456,11 +457,16 @@ final class SettingsState {
     @GuardedBy("mLock")
     private void loadAconfigDefaultValuesLocked(List<String> filePaths) {
         for (String fileName : filePaths) {
-            try (FileInputStream inputStream = new FileInputStream(fileName)) {
-                loadAconfigDefaultValues(
-                        inputStream.readAllBytes(), mNamespaceDefaults, mAconfigDefaultFlags);
-            } catch (IOException e) {
-                Slog.e(LOG_TAG, "failed to read protobuf", e);
+            File f = new File(fileName);
+            if (f.isFile() && f.canRead()) {
+                try (FileInputStream inputStream = new FileInputStream(fileName)) {
+                    loadAconfigDefaultValues(
+                            inputStream.readAllBytes(), mNamespaceDefaults, mAconfigDefaultFlags);
+                } catch (IOException e) {
+                    Slog.e(LOG_TAG, "failed to read protobuf", e);
+                }
+            } else {
+                Slog.d(LOG_TAG, "No protobuf file at " + fileName);
             }
         }
     }

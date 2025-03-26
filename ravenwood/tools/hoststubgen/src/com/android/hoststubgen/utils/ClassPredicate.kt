@@ -22,9 +22,11 @@ import com.android.hoststubgen.normalizeTextLine
 import java.io.File
 
 /**
- * General purpose filter for class names.
+ * General purpose class "selector", which returns a boolean for a given class name.
+ *
+ * (It's used to check if a class is in the "annotations allowed classes" allowlist.)
  */
-class ClassFilter private constructor(
+class ClassPredicate private constructor(
     private val defaultResult: Boolean,
 ) {
     private enum class MatchType {
@@ -81,14 +83,14 @@ class ClassFilter private constructor(
 
     companion object {
         /**
-         * Return a filter that alawys returns true or false.
+         * Return a filter that always returns true or false.
          */
-        fun newNullFilter(defaultResult: Boolean): ClassFilter {
-            return ClassFilter(defaultResult)
+        fun newConstantPredicate(defaultResult: Boolean): ClassPredicate {
+            return ClassPredicate(defaultResult)
         }
 
         /** Build a filter from a file. */
-        fun loadFromFile(filename: String, defaultResult: Boolean): ClassFilter {
+        fun loadFromFile(filename: String, defaultResult: Boolean): ClassPredicate {
             return buildFromString(File(filename).readText(), defaultResult, filename)
         }
 
@@ -97,8 +99,8 @@ class ClassFilter private constructor(
             filterString: String,
             defaultResult: Boolean,
             filenameForErrorMessage: String
-        ): ClassFilter {
-            val ret = ClassFilter(defaultResult)
+        ): ClassPredicate {
+            val ret = ClassPredicate(defaultResult)
 
             var lineNo = 0
             filterString.split('\n').forEach { s ->
