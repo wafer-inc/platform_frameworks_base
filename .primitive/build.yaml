@@ -17,6 +17,5 @@ build:
       workdir: aosp
       cmd: |
         repo sync -c
-        source build/envsetup.sh
-        lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
+        source build/envsetup.sh && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
         m -j32
