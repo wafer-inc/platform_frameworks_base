@@ -7489,7 +7489,8 @@ public class AudioService extends IAudioService.Stub
                 return AudioSystem.STREAM_RING;
             }
         default:
-            if (isInCommunication()) {
+            if (isInCommunication()
+                    || mAudioSystem.isStreamActive(AudioManager.STREAM_VOICE_CALL, 0)) {
                 if (!replaceStreamBtSco()
                         && mBtCommDeviceActive.get() == BT_COMM_DEVICE_ACTIVE_SCO) {
                     if (DEBUG_VOL) Log.v(TAG, "getActiveStreamType: Forcing STREAM_BLUETOOTH_SCO");
@@ -12506,10 +12507,10 @@ public class AudioService extends IAudioService.Stub
                 int uid = intent.getIntExtra(Intent.EXTRA_UID, Process.INVALID_UID);
                 if (intent.getBooleanExtra(EXTRA_REPLACING, false) ||
                         intent.getBooleanExtra(EXTRA_ARCHIVAL, false)) return;
-                if (action.equals(ACTION_PACKAGE_ADDED)) {
+                if (ACTION_PACKAGE_ADDED.equals(action)) {
                     audioserverExecutor.execute(() ->
                             provider.onModifyPackageState(uid, pkgName, false /* isRemoved */));
-                } else if (action.equals(ACTION_PACKAGE_REMOVED)) {
+                } else if (ACTION_PACKAGE_REMOVED.equals(action)) {
                     audioserverExecutor.execute(() ->
                             provider.onModifyPackageState(uid, pkgName, true /* isRemoved */));
                 }
@@ -14153,6 +14154,7 @@ public class AudioService extends IAudioService.Stub
                 for (AudioMix mix : mMixes) {
                     mix.setVirtualDeviceId(mAttributionSource.getDeviceId());
                 }
+                mAudioSystem.registerPolicyMixes(mMixes, false);
                 return mAudioSystem.registerPolicyMixes(mMixes, true);
             } finally {
                 Binder.restoreCallingIdentity(identity);
@@ -14677,11 +14679,13 @@ public class AudioService extends IAudioService.Stub
         final String key = "additional_output_device_delay";
         final String reply = AudioSystem.getParameters(
                 key + "=" + device.getInternalType() + "," + device.getAddress());
-        long delayMillis;
-        try {
-            delayMillis = Long.parseLong(reply.substring(key.length() + 1));
-        } catch (NullPointerException e) {
-            delayMillis = 0;
+        long delayMillis = 0;
+        if (reply.contains(key)) {
+            try {
+                delayMillis = Long.parseLong(reply.substring(key.length() + 1));
+            } catch (NullPointerException e) {
+                delayMillis = 0;
+            }
         }
         return delayMillis;
     }
@@ -14707,11 +14711,13 @@ public class AudioService extends IAudioService.Stub
         final String key = "max_additional_output_device_delay";
         final String reply = AudioSystem.getParameters(
                 key + "=" + device.getInternalType() + "," + device.getAddress());
-        long delayMillis;
-        try {
-            delayMillis = Long.parseLong(reply.substring(key.length() + 1));
-        } catch (NullPointerException e) {
-            delayMillis = 0;
+        long delayMillis = 0;
+        if (reply.contains(key)) {
+            try {
+                delayMillis = Long.parseLong(reply.substring(key.length() + 1));
+            } catch (NullPointerException e) {
+                delayMillis = 0;
+            }
         }
         return delayMillis;
     }

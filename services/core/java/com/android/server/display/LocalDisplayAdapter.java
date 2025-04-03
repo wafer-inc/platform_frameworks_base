@@ -49,7 +49,6 @@ import android.view.RoundedCorners;
 import android.view.SurfaceControl;
 
 import com.android.internal.R;
-import com.android.internal.annotations.KeepForWeakReference;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.display.BrightnessSynchronizer;
 import com.android.internal.util.function.pooled.PooledLambda;
@@ -725,6 +724,11 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                     if (isDisplayPrivate(physicalAddress)) {
                         mInfo.flags |= DisplayDeviceInfo.FLAG_PRIVATE;
                     }
+
+                    if (isDisplayStealTopFocusDisabled(physicalAddress)) {
+                        mInfo.flags |= DisplayDeviceInfo.FLAG_OWN_FOCUS;
+                        mInfo.flags |= DisplayDeviceInfo.FLAG_STEAL_TOP_FOCUS_DISABLED;
+                    }
                 }
 
                 if (DisplayCutout.getMaskBuiltInDisplayCutout(res, mInfo.uniqueId)) {
@@ -982,7 +986,9 @@ final class LocalDisplayAdapter extends DisplayAdapter {
 
                     void handleHdrSdrNitsChanged(float displayNits, float sdrNits) {
                         final float newHdrSdrRatio;
-                        if (displayNits != INVALID_NITS && sdrNits != INVALID_NITS) {
+                        if (displayNits != INVALID_NITS && sdrNits != INVALID_NITS
+                            && (mBacklightAdapter.mUseSurfaceControlBrightness ||
+                                mBacklightAdapter.mForceSurfaceControl)) {
                             // Ensure the ratio stays >= 1.0f as values below that are nonsensical
                             newHdrSdrRatio = Math.max(1.f, displayNits / sdrNits);
                         } else {
@@ -1395,6 +1401,23 @@ final class LocalDisplayAdapter extends DisplayAdapter {
             }
             return false;
         }
+
+        private boolean isDisplayStealTopFocusDisabled(DisplayAddress.Physical physicalAddress) {
+            if (physicalAddress == null) {
+                return false;
+            }
+            final Resources res = getOverlayContext().getResources();
+            int[] ports = res.getIntArray(R.array.config_localNotStealTopFocusDisplayPorts);
+            if (ports != null) {
+                int port = physicalAddress.getPort();
+                for (int p : ports) {
+                    if (p == port) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
     }
 
     private boolean hdrTypesEqual(int[] modeHdrTypes, int[] recordHdrTypes) {
@@ -1446,9 +1469,7 @@ final class LocalDisplayAdapter extends DisplayAdapter {
     }
 
     public static class Injector {
-        // Ensure the callback is kept to preserve native weak reference lifecycle semantics.
         @SuppressWarnings("unused")
-        @KeepForWeakReference
         private ProxyDisplayEventReceiver mReceiver;
         public void setDisplayEventListenerLocked(Looper looper, DisplayEventListener listener) {
             mReceiver = new ProxyDisplayEventReceiver(looper, listener);

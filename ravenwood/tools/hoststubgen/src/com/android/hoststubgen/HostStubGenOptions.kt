@@ -86,6 +86,7 @@ class HostStubGenOptions(
         var removeAnnotations: MutableSet<String> = mutableSetOf(),
         var ignoreAnnotations: MutableSet<String> = mutableSetOf(),
         var keepClassAnnotations: MutableSet<String> = mutableSetOf(),
+        var partiallyAllowedAnnotations: MutableSet<String> = mutableSetOf(),
         var redirectAnnotations: MutableSet<String> = mutableSetOf(),
 
         var substituteAnnotations: MutableSet<String> = mutableSetOf(),
@@ -105,6 +106,8 @@ class HostStubGenOptions(
         var defaultPolicy: SetOnce<FilterPolicy> = SetOnce(FilterPolicy.Remove),
 
         var cleanUpOnError: SetOnce<Boolean> = SetOnce(false),
+
+        var deleteFinals: SetOnce<Boolean> = SetOnce(false),
 
         var enableClassChecker: SetOnce<Boolean> = SetOnce(false),
         var enablePreTrace: SetOnce<Boolean> = SetOnce(false),
@@ -179,6 +182,9 @@ class HostStubGenOptions(
                         "--keep-class-annotation" ->
                             ret.keepClassAnnotations.addUniqueAnnotationArg()
 
+                        "--partially-allowed-annotation" ->
+                            ret.partiallyAllowedAnnotations.addUniqueAnnotationArg()
+
                         "--throw-annotation" ->
                             ret.throwAnnotations.addUniqueAnnotationArg()
 
@@ -217,6 +223,8 @@ class HostStubGenOptions(
 
                         "--gen-keep-all-file" ->
                             ret.inputJarAsKeepAllFile.set(nextArg())
+
+                        "--delete-finals" -> ret.deleteFinals.set(true)
 
                         // Following options are for debugging.
                         "--enable-class-checker" -> ret.enableClassChecker.set(true)
@@ -283,6 +291,7 @@ class HostStubGenOptions(
               removeAnnotations=$removeAnnotations,
               ignoreAnnotations=$ignoreAnnotations,
               keepClassAnnotations=$keepClassAnnotations,
+              partiallyAllowedAnnotations=$partiallyAllowedAnnotations,
               substituteAnnotations=$substituteAnnotations,
               nativeSubstituteAnnotations=$redirectionClassAnnotations,
               classLoadHookAnnotations=$classLoadHookAnnotations,
@@ -293,6 +302,7 @@ class HostStubGenOptions(
               defaultMethodCallHook=$defaultMethodCallHook,
               policyOverrideFiles=${policyOverrideFiles.toTypedArray().contentToString()},
               defaultPolicy=$defaultPolicy,
+              deleteFinals=$deleteFinals,
               cleanUpOnError=$cleanUpOnError,
               enableClassChecker=$enableClassChecker,
               enablePreTrace=$enablePreTrace,
@@ -349,6 +359,8 @@ class ArgIterator(
  * Scan the arguments, and if any of them starts with an `@`, then load from the file
  * and use its content as arguments.
  *
+ * In order to pass an argument that starts with an '@', use '@@' instead.
+ *
  * In this file, each line is treated as a single argument.
  *
  * The file can contain '#' as comments.
@@ -357,7 +369,10 @@ private fun expandAtFiles(args: Array<String>): List<String> {
     val ret = mutableListOf<String>()
 
     args.forEach { arg ->
-        if (!arg.startsWith('@')) {
+        if (arg.startsWith("@@")) {
+            ret += arg.substring(1)
+            return@forEach
+        } else if (!arg.startsWith('@')) {
             ret += arg
             return@forEach
         }

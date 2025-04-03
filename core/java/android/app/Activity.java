@@ -1306,6 +1306,20 @@ public class Activity extends ContextThemeWrapper
     }
 
     /**
+     * Return the viewRootImpl for the given activity.
+     * @hide
+     */
+    @Nullable
+    ViewRootImpl getViewRootImpl() {
+       if (getWindow() != null &&
+           getWindow().peekDecorView() != null &&
+           getWindow().peekDecorView().getViewRootImpl() != null) {
+            return getWindow().peekDecorView().getViewRootImpl();
+        }
+        return null;
+    }
+
+    /**
      * Return the LoaderManager for this activity, creating it if needed.
      *
      * @deprecated Use {@link androidx.fragment.app.FragmentActivity#getSupportLoaderManager()}

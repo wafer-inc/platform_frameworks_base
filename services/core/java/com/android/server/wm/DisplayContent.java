@@ -835,11 +835,12 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
      */
     private final ToBooleanFunction<WindowState> mFindFocusedWindow = w -> {
         final ActivityRecord focusedApp = mFocusedApp;
+        final boolean canReceiveKeys = w.canReceiveKeys();
         ProtoLog.v(WM_DEBUG_FOCUS, "Looking for focus: %s, flags=%d, canReceive=%b, reason=%s",
-                w, w.mAttrs.flags, w.canReceiveKeys(),
+                w, w.mAttrs.flags, canReceiveKeys,
                 w.canReceiveKeysReason(false /* fromUserTouch */));
 
-        if (!w.canReceiveKeys()) {
+        if (!canReceiveKeys) {
             return false;
         }
 
@@ -3866,7 +3867,6 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
         if (mTmpWindow == null) {
             ProtoLog.v(WM_DEBUG_FOCUS_LIGHT, "findFocusedWindow: No focusable windows, display=%d",
                     getDisplayId());
-            return null;
         }
         return mTmpWindow;
     }

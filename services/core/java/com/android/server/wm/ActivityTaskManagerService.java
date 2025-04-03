@@ -241,6 +241,7 @@ import android.util.proto.ProtoOutputStream;
 import android.view.Display;
 import android.view.RemoteAnimationAdapter;
 import android.view.RemoteAnimationDefinition;
+import android.view.ViewRootImpl;
 import android.view.WindowManager;
 import android.window.BackAnimationAdapter;
 import android.window.BackNavigationInfo;
@@ -315,6 +316,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
+
+import switchboard.ISwitchboardService;
 
 /**
  * System service for managing activities and their containers (task, displays,... ).
@@ -322,6 +330,8 @@ import java.util.Set;
  * {@hide}
  */
 public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
+    static final int TRANSACTION_getViewHierarchy = IBinder.FIRST_CALL_TRANSACTION + 1;
+    static final int TRANSACTION_findAndClickView = IBinder.FIRST_CALL_TRANSACTION + 2;
     private static final String TAG = TAG_WITH_CLASS_NAME ? "ActivityTaskManagerService" : TAG_ATM;
     static final String TAG_ROOT_TASK = TAG + POSTFIX_ROOT_TASK;
     static final String TAG_SWITCH = TAG + POSTFIX_SWITCH;
@@ -410,6 +420,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
     RootWindowContainer mRootWindowContainer;
     WindowManagerService mWindowManager;
     private UserManagerService mUserManager;
+    private ISwitchboardService mSwitchboardService;
     private AppOpsManager mAppOpsManager;
     /** All active uids in the system. */
     final MirrorActiveUids mActiveUids = new MirrorActiveUids();
@@ -895,6 +906,51 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
         }
     }
 
+    public void getViewHierarchy(Parcel reply) throws RemoteException {
+        Task task = getTopDisplayFocusedRootTask();
+        if (task == null) {
+            reply.writeInt(0);
+            return;
+        }
+        ActivityRecord topActivityRecord = task.getTopActivity();
+        
+        CompletableFuture<String> future = new CompletableFuture<>();
+        
+        RemoteCallback callback = new RemoteCallback(result -> {
+            String viewMap = result.getString("viewMap");
+            future.complete(viewMap);
+        });
+
+        try {
+            topActivityRecord.app.getThread().getApplicationActivity(topActivityRecord.token, callback);
+            String result = future.get(5, TimeUnit.SECONDS);
+            reply.writeNoException();
+            reply.writeString(result);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            Slog.e(TAG, "Failed to get view hierarchy", e);
+            reply.writeInt(2);
+            reply.writeString("Failed to get view hierarchy: " + e.getMessage());
+        } catch (RemoteException e) {
+            Slog.e(TAG, "Failed to get view hierarchy: " + e.getMessage());
+            reply.writeInt(2);
+            reply.writeString("RemoteException: " + e.getMessage());
+        }
+    }
+
+    public void findAndClickView(String viewId) {
+        try {
+            Slog.d("FindAndClickView", "findAndClickView: " + viewId);
+            Task task = getTopDisplayFocusedRootTask();
+            if (task == null) {
+                return;
+            }
+            ActivityRecord topActivityRecord = task.getTopActivity();
+            topActivityRecord.app.getThread().findAndClickView(topActivityRecord.token, viewId);
+        } catch (RemoteException e) {
+            Slog.e(TAG, "Failed to find and click view", e);
+        }
+    }
+
     public void onInitPowerManagement() {
         synchronized (mGlobalLock) {
             mTaskSupervisor.initPowerManagement();
@@ -1076,6 +1132,14 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
 
     Context getUiContext() {
         return mUiContext;
+    }
+
+    ISwitchboardService getSwitchboardService() {
+        if (mSwitchboardService == null) {
+            IBinder b = ServiceManager.getService("switchboardservice");
+            mSwitchboardService = ISwitchboardService.Stub.asInterface(b);
+        }
+        return mSwitchboardService;
     }
 
     UserManagerService getUserManager() {
@@ -5745,6 +5809,17 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
     public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
             throws RemoteException {
         try {
+            Slog.d("ViewHierarchy", "onTransact " + code);
+            switch (code) {
+                case TRANSACTION_getViewHierarchy:
+                    getViewHierarchy(reply);
+                    reply.writeNoException();
+                    return true;
+                case TRANSACTION_findAndClickView:
+                    String viewId = data.readString();
+                    findAndClickView(viewId);
+                    return true;
+            }
             return super.onTransact(code, data, reply, flags);
         } catch (RuntimeException e) {
             throw logAndRethrowRuntimeExceptionOnTransact(TAG, e);

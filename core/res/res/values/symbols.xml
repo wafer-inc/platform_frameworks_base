@@ -425,6 +425,7 @@
   <java-symbol type="bool" name="config_enableProximityService" />
   <java-symbol type="bool" name="config_enableVirtualDeviceManager" />
   <java-symbol type="array" name="config_localPrivateDisplayPorts" />
+  <java-symbol type="array" name="config_localNotStealTopFocusDisplayPorts" />
   <java-symbol type="integer" name="config_defaultDisplayDefaultColorMode" />
   <java-symbol type="bool" name="config_enableAppWidgetService" />
   <java-symbol type="dimen" name="config_pictureInPictureMinAspectRatio" />
@@ -4259,10 +4260,6 @@
   <java-symbol type="integer" name="config_unfoldTransitionHalfFoldedTimeout" />
   <java-symbol type="array" name="config_perDeviceStateRotationLockDefaults" />
 
-
-  <java-symbol type="array" name="config_disableApksUnlessMatchedSku_apk_list" />
-  <java-symbol type="array" name="config_disableApkUnlessMatchedSku_skus_list" />
-
   <java-symbol type="string" name="config_misprovisionedDeviceModel" />
   <java-symbol type="string" name="config_misprovisionedBrandValue" />
 
@@ -4314,6 +4311,11 @@
 
   <!-- For Attention Service -->
   <java-symbol type="integer" name="config_attentionMaximumExtension" />
+
+  <java-symbol type="bool" name="config_defaultPreventScreenTimeoutEnabled" />
+  <java-symbol type="integer" name="config_defaultPreventScreenTimeoutForMillis" />
+  <java-symbol type="integer" name="config_defaultMaxDurationBetweenUndimsMillis" />
+  <java-symbol type="integer" name="config_defaultUndimsRequired" />
 
   <java-symbol type="string" name="config_incidentReportApproverPackage" />
   <java-symbol type="array" name="config_restrictedImagesServices" />

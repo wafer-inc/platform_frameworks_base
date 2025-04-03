@@ -1,0 +1,21 @@
+build:
+  requires:
+    - devbox
+  executes:
+    - label: make os directory
+      cmd: |
+        mkdir -p aosp
+    - label: setup
+      workdir: aosp
+      cmd: |
+        repo init --partial-clone -b main -u https://android.googlesource.com/platform/manifest
+        mkdir -p ./.repo/local_manifests
+    - label: create manifests
+      cmd: |
+        uv run python generate_manifests.py "./aosp/.repo/local_manifests"
+    - label: build
+      workdir: aosp
+      cmd: |
+        repo sync -c
+        source build/envsetup.sh && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
+        m -j32

@@ -1,16 +1,12 @@
 name: Sync Wafer Branch with Upstream
 
-# Add permissions block
-permissions:
-  contents: write
-
 on:
   schedule:
-    - cron: "0 */6 * * *"
-  workflow_dispatch: {}
+    - cron: "0 */6 * * *" # Runs every 6 hours
+  workflow_dispatch: {} # Allows manual triggering
   push:
     branches:
-      - main
+      - main # Also run when main is updated
 
 jobs:
   sync-wafer:
@@ -21,8 +17,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          ref: wafer
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: wafer # Checkout wafer branch
 
       - name: Configure Git
         run: |

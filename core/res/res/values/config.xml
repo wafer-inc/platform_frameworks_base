@@ -2741,6 +2741,20 @@
     <integer name="config_dreamsBatteryLevelDrainCutoff">5</integer>
     <!-- Limit of how long the device can remain unlocked due to attention checking.  -->
     <integer name="config_attentionMaximumExtension">900000</integer> <!-- 15 minutes.  -->
+
+    <!-- Enables or disables the 'prevent screen timeout' feature, where when a user manually
+         undims the screen, the feature acquires a wakelock to prevent screen timeout.
+         false = disabled, true = enabled. Disabled by default. -->
+    <bool name="config_defaultPreventScreenTimeoutEnabled">false</bool>
+    <!-- Default value (in milliseconds) to prevent the screen timeout after user undims it
+         manually between screen dims, a sign the user is interacting with the device. -->
+    <integer name="config_defaultPreventScreenTimeoutForMillis">300000</integer> <!-- 5 minutes. -->
+    <!-- Default max duration (in milliseconds) of the time between undims to still consider them
+         consecutive. -->
+    <integer name="config_defaultMaxDurationBetweenUndimsMillis">600000</integer> <!-- 10 min.  -->
+    <!-- Default number of user undims required to trigger preventing screen sleep. -->
+    <integer name="config_defaultUndimsRequired">2</integer>
+
     <!-- Whether there is to be a chosen Dock User who is the only user allowed to dream. -->
     <bool name="config_dreamsOnlyEnabledForDockUser">false</bool>
     <!-- Whether dreams are disabled when ambient mode is suppressed. -->
@@ -3182,6 +3196,14 @@
          represents physical port address of each display and display in this list will be marked
          as private. {@see android.view.Display#FLAG_PRIVATE} -->
     <integer-array translatable="false" name="config_localPrivateDisplayPorts"></integer-array>
+
+    <!-- Controls if local secondary displays should be able to steal focus and become top display.
+         Value specified in the array represents physical port address of each display and displays
+         in this list due to flag dependencies will be marked with the following flags:
+         {@see android.view.Display#FLAG_STEAL_TOP_FOCUS_DISABLED}
+         {@see android.view.Display#FLAG_OWN_FOCUS} -->
+    <integer-array translatable="false" name="config_localNotStealTopFocusDisplayPorts">
+    </integer-array>
 
     <!-- The default mode for the default display. One of the following values (See Display.java):
              0 - COLOR_MODE_DEFAULT
@@ -5125,10 +5147,6 @@
 
     <!-- Whether or not swipe up gesture's opt-in setting is available on this device -->
     <bool name="config_swipe_up_gesture_setting_available">true</bool>
-
-    <!-- Applications which are disabled unless matching a particular sku -->
-    <string-array name="config_disableApksUnlessMatchedSku_apk_list" translatable="false" />
-    <string-array name="config_disableApkUnlessMatchedSku_skus_list" translatable="false" />
 
     <!-- Whether or not we should show the option to show battery percentage -->
     <bool name="config_battery_percentage_setting_available">true</bool>

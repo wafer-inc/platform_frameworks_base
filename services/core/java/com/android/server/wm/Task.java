@@ -5914,6 +5914,10 @@ class Task extends TaskFragment {
         }
     }
 
+    ActivityRecord getTopActivity() {
+        return getTopMostActivity();
+    }
+
     ArrayList<ActivityRecord> getDumpActivitiesLocked(String name, @UserIdInt int userId) {
         ArrayList<ActivityRecord> activities = new ArrayList<>();
 
