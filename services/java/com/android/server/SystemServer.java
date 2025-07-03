@@ -272,6 +272,7 @@ import com.android.server.stats.pull.StatsPullAtomService;
 import com.android.server.statusbar.StatusBarManagerService;
 import com.android.server.storage.DeviceStorageMonitorService;
 import com.android.server.supervision.SupervisionService;
+import com.android.server.switchboard.SwitchboardManagerService;
 import com.android.server.systemcaptions.SystemCaptionsManagerService;
 import com.android.server.telecom.TelecomLoaderService;
 import com.android.server.testharness.TestHarnessModeService;
@@ -2026,6 +2027,15 @@ public final class SystemServer implements Dumpable {
                         DUMP_FLAG_PRIORITY_NORMAL | DUMP_FLAG_PROTO);
             } catch (Throwable e) {
                 reportWtf("starting StatusBarManagerService", e);
+            }
+            t.traceEnd();
+
+            // Switchboard service - coordinates with native switchboard binder service
+            t.traceBegin("StartSwitchboardManagerService");
+            try {
+                mSystemServiceManager.startService(SwitchboardManagerService.class);
+            } catch (Throwable e) {
+                reportWtf("starting Switchboard Manager Service", e);
             }
             t.traceEnd();
 
