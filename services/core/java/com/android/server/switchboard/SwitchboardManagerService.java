@@ -7,6 +7,8 @@ import android.os.ServiceManager;
 import android.util.Slog;
 
 import com.android.server.SystemService;
+import com.android.server.pm.UserManagerInternal.UserLifecycleListener;
+import com.android.server.SystemService.TargetUser;
 
 import switchboard.ISwitchboardService;
 import switchboard.ISwitchboardCallback;
@@ -39,7 +41,19 @@ public class SwitchboardManagerService extends SystemService {
     @Override
     public void onBootPhase(int phase) {
         if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
-            Slog.i(TAG, "System services ready, ensuring switchboard connection");
+            Slog.i(TAG, "System services ready, switchboard will start after unlock");
+        } else if (phase == SystemService.PHASE_BOOT_COMPLETED) {
+            Slog.i(TAG, "Boot completed, checking switchboard connection");
+            // Try to connect - the service should be started by init after unlock
+            ensureServiceConnection();
+        }
+    }
+    
+    @Override
+    public void onUserUnlocked(TargetUser user) {
+        if (user.getUserIdentifier() == 0) {
+            Slog.i(TAG, "User 0 unlocked, ensuring switchboard connection");
+            // The init trigger should have started the service, try to connect
             ensureServiceConnection();
         }
     }
