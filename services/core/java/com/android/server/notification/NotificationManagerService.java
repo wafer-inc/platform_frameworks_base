@@ -324,6 +324,8 @@ import android.view.accessibility.AccessibilityManager;
 import android.widget.RemoteViews;
 import android.widget.Toast;
 
+import switchboard.ISwitchboardService;
+
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
@@ -9524,6 +9526,9 @@ public class NotificationManagerService extends SystemService {
                                         getGroupInstanceId(r.getSbn().getGroupKey()));
                         notifyListenersPostedAndLogLocked(r, old, mTracker, maybeReport);
                         posted = true;
+                        
+                        // Send notification data to ingestion service
+                        sendNotificationToSwitchboard(r);
 
                         if (!android.app.Flags.checkAutogroupBeforePost()) {
                             StatusBarNotification oldSbn = (old != null) ? old.getSbn() : null;
@@ -13668,6 +13673,81 @@ public class NotificationManagerService extends SystemService {
         }
     }
 
+    private void sendNotificationToSwitchboard(NotificationRecord r) {
+        try {
+            StatusBarNotification sbn = r.getSbn();
+            Notification notification = sbn.getNotification();
+            
+            // Get the switchboard service via ServiceManager
+            android.os.IBinder binder = android.os.ServiceManager.getService("switchboardservice");
+            if (binder == null) {
+                if (DBG) Slog.w(TAG, "Switchboard service not available");
+                return;
+            }
+            
+            // Convert to ISwitchboardService interface
+            switchboard.ISwitchboardService switchboardService = 
+                switchboard.ISwitchboardService.Stub.asInterface(binder);
+            
+            // Extract notification content
+            Bundle extras = notification.extras;
+            if (extras != null) {
+                CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
+                CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
+                CharSequence bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+                
+                // Extract ALL extras as JSON - this captures any custom data/deep links
+                // that apps include (from FCM payloads, custom fields, etc.)
+                org.json.JSONObject extrasJson = new org.json.JSONObject();
+                try {
+                    for (String key : extras.keySet()) {
+                        Object value = extras.get(key);
+                        if (value != null) {
+                            // Include strings, numbers, booleans - these often contain deep links
+                            // Skip system extras that start with "android." to reduce noise
+                            if (!key.startsWith("android.") && 
+                                (value instanceof String || value instanceof Number || 
+                                 value instanceof Boolean || value instanceof CharSequence)) {
+                                extrasJson.put(key, value.toString());
+                            }
+                        }
+                    }
+                    
+                    // Also add PendingIntent info if available
+                    if (notification.contentIntent != null) {
+                        extrasJson.put("_contentIntent", notification.contentIntent.toString());
+                        extrasJson.put("_creatorPackage", notification.contentIntent.getCreatorPackage());
+                    }
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failed to extract notification extras", e);
+                }
+                
+                // Pass the JSON string containing all custom data/deep links
+                String contentIntentStr = extrasJson.toString();
+                
+                // Call the new ingestNotification method
+                switchboardService.ingestNotification(
+                    sbn.getPackageName(),
+                    sbn.getPostTime(),
+                    title != null ? title.toString() : "",
+                    text != null ? text.toString() : "",
+                    bigText != null ? bigText.toString() : "",
+                    contentIntentStr
+                );
+                
+                if (DBG) {
+                    Slog.d(TAG, "Sent notification to switchboard: " + sbn.getPackageName() 
+                        + "/" + sbn.getId());
+                }
+            }
+        } catch (android.os.RemoteException e) {
+            // Service communication failed, but don't crash notification system
+            Slog.w(TAG, "Failed to communicate with switchboard service", e);
+        } catch (Exception e) {
+            // Don't let ingestion failures affect normal notification flow
+            Slog.e(TAG, "Failed to send notification to switchboard", e);
+        }
+    }
     @GuardedBy("mNotificationLock")
     private void broadcastToCallNotificationEventCallbacks(
             final RemoteCallbackList<ICallNotificationEventCallback> callbackList,
