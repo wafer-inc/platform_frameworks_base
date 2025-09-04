@@ -13701,22 +13701,117 @@ public class NotificationManagerService extends SystemService {
                 org.json.JSONObject extrasJson = new org.json.JSONObject();
                 try {
                     for (String key : extras.keySet()) {
-                        Object value = extras.get(key);
-                        if (value != null) {
-                            // Include strings, numbers, booleans - these often contain deep links
-                            // Skip system extras that start with "android." to reduce noise
-                            if (!key.startsWith("android.") && 
-                                (value instanceof String || value instanceof Number || 
-                                 value instanceof Boolean || value instanceof CharSequence)) {
-                                extrasJson.put(key, value.toString());
+                        try {
+                            Object value = extras.get(key);
+                            if (value != null) {
+                                if (value instanceof String || value instanceof CharSequence) {
+                                    extrasJson.put(key, value.toString());
+                                } else if (value instanceof Number || value instanceof Boolean) {
+                                    extrasJson.put(key, value.toString());
+                                } else if (value instanceof Bundle) {
+                                    // Handle nested bundles (some apps use these)
+                                    Bundle nestedBundle = (Bundle) value;
+                                    org.json.JSONObject nestedJson = new org.json.JSONObject();
+                                    for (String nestedKey : nestedBundle.keySet()) {
+                                        Object nestedValue = nestedBundle.get(nestedKey);
+                                        if (nestedValue != null) {
+                                            nestedJson.put(nestedKey, nestedValue.toString());
+                                        }
+                                    }
+                                    extrasJson.put(key, nestedJson);
+                                } else {
+                                    // For other types, just use toString()
+                                    extrasJson.put(key, value.toString());
+                                }
                             }
+                        } catch (Exception e) {
+                            // Log but continue with other keys
+                            Slog.w(TAG, "Failed to extract key: " + key, e);
                         }
                     }
                     
                     // Also add PendingIntent info if available
                     if (notification.contentIntent != null) {
-                        extrasJson.put("_contentIntent", notification.contentIntent.toString());
-                        extrasJson.put("_creatorPackage", notification.contentIntent.getCreatorPackage());
+                        try {
+                            // Extract detailed PendingIntent information
+                            android.app.PendingIntent pi = notification.contentIntent;
+                            extrasJson.put("_contentIntent", pi.toString());
+                            extrasJson.put("_creatorPackage", pi.getCreatorPackage());
+                            extrasJson.put("_creatorUid", pi.getCreatorUid());
+                            
+                            try {
+                                java.lang.reflect.Field targetField = 
+                                    android.app.PendingIntent.class.getDeclaredField("mTarget");
+                                targetField.setAccessible(true);
+                                android.content.IIntentSender target = 
+                                    (android.content.IIntentSender) targetField.get(pi);
+                                
+                                if (target != null) {
+                                    // Get the intent info from ActivityManager
+                                    android.app.IActivityManager am = 
+                                        android.app.ActivityManager.getService();
+                                    android.content.Intent intent = 
+                                        am.getIntentForIntentSender(target);
+                                    
+                                    if (intent != null) {
+                                        // Store the actual Intent details
+                                        extrasJson.put("_intentAction", intent.getAction());
+                                        extrasJson.put("_intentComponent", 
+                                            intent.getComponent() != null ? 
+                                            intent.getComponent().flattenToString() : "");
+                                        extrasJson.put("_intentData", 
+                                            intent.getDataString() != null ? 
+                                            intent.getDataString() : "");
+                                        extrasJson.put("_intentFlags", intent.getFlags());
+                                        extrasJson.put("_intentType", intent.getType());
+                                        extrasJson.put("_intentCategories", 
+                                            intent.getCategories() != null ? 
+                                            intent.getCategories().toString() : "");
+                                        extrasJson.put("_intentPackage", intent.getPackage());
+                                        
+                                        // Store intent extras
+                                        Bundle intentExtras = intent.getExtras();
+                                        if (intentExtras != null) {
+                                            org.json.JSONObject intentExtrasJson = 
+                                                new org.json.JSONObject();
+                                            for (String key : intentExtras.keySet()) {
+                                                Object value = intentExtras.get(key);
+                                                if (value != null) {
+                                                    if (value instanceof Bundle) {
+                                                        // Unparcel and extract nested bundle
+                                                        Bundle nestedBundle = (Bundle) value;
+                                                        try {
+                                                            // Force unparcelling
+                                                            nestedBundle.size();
+                                                            org.json.JSONObject nestedJson = 
+                                                                new org.json.JSONObject();
+                                                            for (String nKey : nestedBundle.keySet()) {
+                                                                Object nValue = nestedBundle.get(nKey);
+                                                                if (nValue != null) {
+                                                                    nestedJson.put(nKey, nValue.toString());
+                                                                }
+                                                            }
+                                                            intentExtrasJson.put(key, nestedJson);
+                                                        } catch (Exception e) {
+                                                            // If unparcelling fails, store as string
+                                                            intentExtrasJson.put(key, value.toString());
+                                                        }
+                                                    } else {
+                                                        intentExtrasJson.put(key, value.toString());
+                                                    }
+                                                }
+                                            }
+                                            extrasJson.put("_intentExtras", intentExtrasJson);
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                // Reflection failed, but continue with basic info
+                                Slog.w(TAG, "Could not extract Intent details from PendingIntent", e);
+                            }
+                        } catch (Exception e) {
+                            Slog.w(TAG, "Failed to extract PendingIntent info", e);
+                        }
                     }
                 } catch (Exception e) {
                     Slog.w(TAG, "Failed to extract notification extras", e);
