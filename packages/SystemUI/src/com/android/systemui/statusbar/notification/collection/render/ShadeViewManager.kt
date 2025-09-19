@@ -42,6 +42,7 @@ constructor(
     @ShadeDisplayAware context: Context,
     @Assisted listContainer: NotificationListContainer,
     @Assisted private val stackController: NotifStackController,
+    dailyOutlookController: DailyOutlookController,
     mediaContainerController: MediaContainerController,
     featureManager: NotificationSectionsFeatureManager,
     sectionHeaderVisibilityProvider: SectionHeaderVisibilityProvider,
@@ -54,6 +55,7 @@ constructor(
     private val rootController = RootNodeController(listContainer, View(context))
     private val specBuilder =
         NodeSpecBuilder(
+            dailyOutlookController,
             mediaContainerController,
             featureManager,
             sectionHeaderVisibilityProvider,
