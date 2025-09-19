@@ -179,6 +179,7 @@ java_library_static {
 
     static_libs: [
         "switchboard-java",
+        "shortcutservice_native_aidl-java",
         "android.frameworks.vibrator-V1-java", // AIDL
         "android.frameworks.devicestate-V1-java", // AIDL
         "android.hardware.authsecret-V1.0-java",
