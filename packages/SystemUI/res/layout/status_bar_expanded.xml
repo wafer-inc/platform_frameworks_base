@@ -31,6 +31,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+
     <ViewStub
         android:id="@+id/keyguard_qs_user_switch_stub"
         android:layout="@layout/keyguard_qs_user_switch"
@@ -84,10 +85,26 @@
             systemui:layout_constraintGuide_percent="0.5"
             android:orientation="vertical"/>
 
-        <!-- This layout should always include a version of
-             NotificationStackScrollLayout, as it is expected from
-             NotificationPanelViewController. -->
-        <include layout="@layout/notification_stack_scroll_layout" />
+        <!-- Linear container for daily outlook and notifications -->
+        <LinearLayout
+            android:id="@+id/notification_container"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:orientation="vertical"
+            systemui:layout_constraintStart_toStartOf="parent"
+            systemui:layout_constraintEnd_toEndOf="parent"
+            systemui:layout_constraintTop_toTopOf="parent"
+            systemui:layout_constraintBottom_toBottomOf="parent">
+
+
+            <!-- This layout should always include a version of
+                 NotificationStackScrollLayout, as it is expected from
+                 NotificationPanelViewController. -->
+            <include layout="@layout/notification_stack_scroll_layout"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+        </LinearLayout>
 
         <include layout="@layout/photo_preview_overlay" />
 

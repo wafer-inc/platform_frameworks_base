@@ -113,6 +113,7 @@ import com.android.systemui.statusbar.notification.headsup.HeadsUpTouchHelper;
 import com.android.systemui.statusbar.notification.headsup.HeadsUpUtil;
 import com.android.systemui.statusbar.notification.logging.NotificationLogger;
 import com.android.systemui.statusbar.notification.row.ActivatableNotificationView;
+import com.android.systemui.statusbar.notification.row.DailyOutlookView;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.row.ExpandableView;
 import com.android.systemui.statusbar.notification.row.StackScrollerDecorView;
@@ -647,7 +648,9 @@ public class NotificationStackScrollLayout
         mSectionsManager = Dependency.get(NotificationSectionsManager.class);
         mScreenOffAnimationController =
                 Dependency.get(ScreenOffAnimationController.class);
+        android.util.Log.d("NotificationStackScrollLayout", "[INIT] Calling mSectionsManager.initialize()");
         mSectionsManager.initialize(this);
+        android.util.Log.d("NotificationStackScrollLayout", "[INIT] mSectionsManager.initialize() completed");
         mSections = mSectionsManager.createSectionsForBuckets();
 
         mAmbientState = Dependency.get(AmbientState.class);
@@ -5378,6 +5381,8 @@ public class NotificationStackScrollLayout
                 View child = getChildAt(i);
                 if (child instanceof ExpandableNotificationRow childRow) {
                     childRow.setOnKeyguard(isOnLockscreen);
+                } else if (child instanceof DailyOutlookView dailyView) {
+                    dailyView.setOnKeyguard(isOnLockscreen);
                 }
             }
         }
