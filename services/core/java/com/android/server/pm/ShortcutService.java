@@ -667,6 +667,8 @@ public class ShortcutService extends IShortcutService.Stub {
         @Override
         public void onStart() {
             publishBinderService(Context.SHORTCUT_SERVICE, mService);
+            // Register the native-friendly service
+            ShortcutServiceNative.register(mService);
         }
 
         @Override
@@ -2657,6 +2659,55 @@ public class ShortcutService extends IShortcutService.Stub {
             }
         }
         return false;
+    }
+
+    /**
+     * Helper method for ShortcutServiceNative to get shortcuts with specific flags.
+     * @hide
+     */
+    public List<ShortcutInfo> getShortcutsForQuery(@NonNull String packageName,
+            int flags, @UserIdInt int userId) {
+        synchronized (mServiceLock) {
+            throwIfUserLockedL(userId);
+
+            final ArrayList<ShortcutInfo> ret = new ArrayList<>();
+            final ShortcutPackage ps = getPackageShortcutsLocked(packageName, userId);
+
+            if ((flags & ShortcutManager.FLAG_MATCH_DYNAMIC) != 0) {
+                ps.findAll(ret, ShortcutInfo::isDynamic, ShortcutInfo.CLONE_REMOVE_FOR_CREATOR);
+            }
+            if ((flags & ShortcutManager.FLAG_MATCH_PINNED) != 0) {
+                ps.findAll(ret, ShortcutInfo::isPinned, ShortcutInfo.CLONE_REMOVE_FOR_CREATOR);
+            }
+            if ((flags & ShortcutManager.FLAG_MATCH_MANIFEST) != 0) {
+                ps.findAll(ret, ShortcutInfo::isDeclaredInManifest, ShortcutInfo.CLONE_REMOVE_FOR_CREATOR);
+            }
+
+            return setReturnedByServer(ret);
+        }
+    }
+
+    /**
+     * Helper method for ShortcutServiceNative to get share targets for a specific package.
+     * @hide
+     */
+    public List<ShortcutManager.ShareShortcutInfo> getShareTargetsForPackage(
+            @NonNull String packageName, @NonNull IntentFilter filter, @UserIdInt int userId) {
+        synchronized (mServiceLock) {
+            throwIfUserLockedL(userId);
+
+            final ShortcutPackage ps = getPackageShortcutsLocked(packageName, userId);
+            return ps.getMatchingShareTargets(filter,
+                    mUserManagerInternal.getProfileParentId(userId));
+        }
+    }
+
+    /**
+     * Get the context for ShortcutServiceNative.
+     * @hide
+     */
+    public Context getContext() {
+        return mContext;
     }
 
     @GuardedBy("mServiceLock")
