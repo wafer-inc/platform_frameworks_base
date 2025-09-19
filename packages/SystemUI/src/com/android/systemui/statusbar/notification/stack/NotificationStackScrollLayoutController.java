@@ -393,6 +393,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
 
                 @Override
                 public void onStateChanged(int newState) {
+                    Log.d(TAG, "StatusBar state changed from " + mBarState + " to " + newState);
                     mBarState = newState;
                     mView.setStatusBarState(mBarState);
                     if (newState == KEYGUARD) {
@@ -1897,6 +1898,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         return shelf == null ? 0 : shelf.getIntrinsicHeight();
     }
 
+    
     @VisibleForTesting
     void onKeyguardTransitionChanged(TransitionStep transitionStep) {
         FooterViewRefactor.assertInLegacyMode();

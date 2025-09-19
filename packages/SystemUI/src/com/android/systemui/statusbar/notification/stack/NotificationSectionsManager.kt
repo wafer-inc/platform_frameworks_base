@@ -23,6 +23,7 @@ import com.android.systemui.media.controls.ui.controller.KeyguardMediaController
 import com.android.systemui.shade.ShadeDisplayAware
 import com.android.systemui.statusbar.notification.SourceType
 import com.android.systemui.statusbar.notification.collection.NotificationClassificationFlag
+import com.android.systemui.statusbar.notification.collection.render.DailyOutlookController
 import com.android.systemui.statusbar.notification.collection.render.MediaContainerController
 import com.android.systemui.statusbar.notification.collection.render.SectionHeaderController
 import com.android.systemui.statusbar.notification.dagger.AlertingHeader
@@ -51,6 +52,7 @@ class NotificationSectionsManager
 internal constructor(
     @ShadeDisplayAware private val configurationController: ConfigurationController,
     private val keyguardMediaController: KeyguardMediaController,
+    private val dailyOutlookController: DailyOutlookController,
     private val mediaContainerController: MediaContainerController,
     private val notificationRoundnessManager: NotificationRoundnessManager,
     @IncomingHeader private val incomingHeaderController: SectionHeaderController,
@@ -109,8 +111,13 @@ internal constructor(
     val promoHeaderView: SectionHeaderView?
         get() = promoHeaderController.headerView
 
+    @VisibleForTesting
+    val dailyOutlookView: com.android.systemui.statusbar.notification.row.DailyOutlookView?
+        get() = dailyOutlookController.dailyOutlookView
+
     /** Must be called before use. */
     fun initialize(parent: NotificationStackScrollLayout) {
+        android.util.Log.d("NotifSectionsManager", "initialize called with parent: $parent")
         check(!initialized) { "NotificationSectionsManager already initialized" }
         initialized = true
         this.parent = parent
@@ -126,6 +133,8 @@ internal constructor(
 
     /** Reinflates the entire notification header, including all decoration views. */
     fun reinflateViews() {
+        android.util.Log.d("NotifSectionsManager", "reinflateViews called")
+        dailyOutlookController.reinflateView(parent)
         silentHeaderController.reinflateView(parent)
         alertingHeaderController.reinflateView(parent)
         peopleHeaderController.reinflateView(parent)
@@ -141,7 +150,8 @@ internal constructor(
     }
 
     override fun beginsSection(view: View, previous: View?): Boolean =
-        view === silentHeaderView ||
+        view === dailyOutlookView ||
+            view === silentHeaderView ||
             view === mediaControlsView ||
             view === peopleHeaderView ||
             view === alertingHeaderView ||
@@ -155,6 +165,7 @@ internal constructor(
 
     private fun getBucket(view: View?): Int? =
         when {
+            view === dailyOutlookView -> BUCKET_DAILY_OUTLOOK
             view === silentHeaderView -> BUCKET_SILENT
             view === incomingHeaderView -> BUCKET_HEADS_UP
             view === mediaControlsView -> BUCKET_MEDIA_CONTROLS
