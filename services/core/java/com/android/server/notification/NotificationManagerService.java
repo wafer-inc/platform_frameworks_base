@@ -13819,10 +13819,11 @@ public class NotificationManagerService extends SystemService {
                 
                 // Pass the JSON string containing all custom data/deep links
                 String contentIntentStr = extrasJson.toString();
-                
-                // Call the new ingestNotification method
+
+                // Call the new ingestNotification method with notification ID
                 switchboardService.ingestNotification(
                     sbn.getPackageName(),
+                    sbn.getId(),
                     sbn.getPostTime(),
                     title != null ? title.toString() : "",
                     text != null ? text.toString() : "",
@@ -13843,6 +13844,7 @@ public class NotificationManagerService extends SystemService {
             Slog.e(TAG, "Failed to send notification to switchboard", e);
         }
     }
+
     @GuardedBy("mNotificationLock")
     private void broadcastToCallNotificationEventCallbacks(
             final RemoteCallbackList<ICallNotificationEventCallback> callbackList,
