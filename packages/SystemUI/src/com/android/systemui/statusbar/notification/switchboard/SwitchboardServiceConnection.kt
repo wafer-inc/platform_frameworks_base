@@ -17,7 +17,6 @@
 package com.android.systemui.statusbar.notification.switchboard
 
 import android.content.Context
-import android.os.IBinder
 import android.os.RemoteException
 import android.os.ServiceManager
 import android.util.Log
@@ -25,11 +24,9 @@ import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.dagger.qualifiers.Background
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 import switchboard.ISwitchboardOutlookCallback
 import switchboard.ISwitchboardService
@@ -46,6 +43,8 @@ class SwitchboardServiceConnection @Inject constructor(
     private var switchboardService: ISwitchboardService? = null
     private val _outlookData = MutableStateFlow<DailyOutlookData?>(null)
     val outlookData: StateFlow<DailyOutlookData?> = _outlookData.asStateFlow()
+    private var outlookCallback: ISwitchboardOutlookCallback? = null
+    private var callbackId: Long? = null
 
     companion object {
         private const val TAG = "SwitchboardConnection"
@@ -61,6 +60,11 @@ class SwitchboardServiceConnection @Inject constructor(
                 Log.d(TAG, "[SWITCHBOARD-CONNECT] ✓ Found binder service, creating interface")
                 switchboardService = ISwitchboardService.Stub.asInterface(binder)
                 Log.d(TAG, "[SWITCHBOARD-CONNECT] ✓ Interface created successfully")
+
+                // Register for automatic Outlook updates
+                registerForAutomaticUpdates()
+
+                // Also request an initial update
                 requestOutlookUpdate()
             } else {
                 Log.w(TAG, "[SWITCHBOARD-CONNECT] ✗ Binder service not found in ServiceManager")
@@ -72,7 +76,13 @@ class SwitchboardServiceConnection @Inject constructor(
 
     fun disconnect() {
         Log.d(TAG, "Disconnecting from Switchboard service")
+
+        // Unregister from automatic updates
+        unregisterFromAutomaticUpdates()
+
         switchboardService = null
+        outlookCallback = null
+        callbackId = null
         _outlookData.value = null
     }
 
@@ -184,6 +194,52 @@ class SwitchboardServiceConnection @Inject constructor(
 
     fun refresh() {
         requestOutlookUpdate()
+    }
+
+    private fun registerForAutomaticUpdates() {
+        Log.d(TAG, "[SWITCHBOARD-REGISTER] Registering for automatic Outlook updates")
+        val service = switchboardService ?: run {
+            Log.w(TAG, "[SWITCHBOARD-REGISTER] ✗ Service not connected")
+            return
+        }
+
+        try {
+            // Create a persistent callback for automatic updates
+            outlookCallback = object : ISwitchboardOutlookCallback.Stub() {
+                override fun onResponse(contextJson: String) {
+                    Log.d(TAG, "[SWITCHBOARD-AUTO-UPDATE] ✓ Received automatic Outlook update")
+                    Log.d(TAG, "[SWITCHBOARD-AUTO-UPDATE] JSON length: ${contextJson.length} chars")
+                    parseOutlookResponse(contextJson)
+                }
+
+                override fun onError(code: Int, error: String) {
+                    Log.e(TAG, "[SWITCHBOARD-AUTO-UPDATE] ✗ Error in automatic update: code=$code, error=$error")
+                    // Don't clear data on error for automatic updates, keep showing last known good state
+                }
+            }
+
+            val id = service.registerForOutlookUpdates(outlookCallback)
+            callbackId = id
+            Log.d(TAG, "[SWITCHBOARD-REGISTER] ✓ Successfully registered for automatic updates with ID: $id")
+        } catch (e: RemoteException) {
+            Log.e(TAG, "[SWITCHBOARD-REGISTER] ✗ RemoteException during registration", e)
+        }
+    }
+
+    private fun unregisterFromAutomaticUpdates() {
+        Log.d(TAG, "[SWITCHBOARD-UNREGISTER] Unregistering from automatic Outlook updates")
+        val service = switchboardService
+        val id = callbackId
+
+        if (service != null && id != null) {
+            try {
+                service.unregisterForOutlookUpdates(id)
+                Log.d(TAG, "[SWITCHBOARD-UNREGISTER] ✓ Successfully unregistered callback ID: $id")
+                callbackId = null
+            } catch (e: RemoteException) {
+                Log.e(TAG, "[SWITCHBOARD-UNREGISTER] ✗ RemoteException during unregistration", e)
+            }
+        }
     }
 }
 
