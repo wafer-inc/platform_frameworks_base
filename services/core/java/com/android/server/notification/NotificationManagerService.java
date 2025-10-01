@@ -15093,6 +15093,9 @@ public class NotificationManagerService extends SystemService {
                 // Pass the JSON string containing all custom data/deep links
                 String contentIntentStr = extrasJson.toString();
 
+                // Get the notification category (e.g., "transport" for media notifications)
+                String category = notification.category != null ? notification.category : "";
+
                 // Call the new ingestNotification method with notification ID
                 switchboardService.ingestNotification(
                     sbn.getPackageName(),
@@ -15101,7 +15104,8 @@ public class NotificationManagerService extends SystemService {
                     title != null ? title.toString() : "",
                     text != null ? text.toString() : "",
                     bigText != null ? bigText.toString() : "",
-                    contentIntentStr
+                    contentIntentStr,
+                    category
                 );
                 
                 if (DBG) {
