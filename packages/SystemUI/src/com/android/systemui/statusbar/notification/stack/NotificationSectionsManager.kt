@@ -112,7 +112,7 @@ internal constructor(
         get() = promoHeaderController.headerView
 
     @VisibleForTesting
-    val dailyOutlookView: com.android.systemui.statusbar.notification.row.DailyOutlookView?
+    val dailyOutlookView: View?
         get() = dailyOutlookController.dailyOutlookView
 
     /** Must be called before use. */

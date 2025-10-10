@@ -19,6 +19,7 @@ package com.android.systemui.statusbar.notification.collection.render
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.statusbar.notification.row.DailyOutlookView
@@ -40,8 +41,16 @@ constructor(
 ) : NodeController {
 
     override val nodeLabel = "DailyOutlook"
-    var dailyOutlookView: DailyOutlookView? = null
+
+    // Container to hold multiple outlook views
+    private var containerView: ViewGroup? = null
+    private val dailyOutlookViews = mutableListOf<DailyOutlookView>()
+    private val MAX_OUTLOOK_VIEWS = 5
+
+    // For compatibility, expose the container
+    var dailyOutlookView: View? = null
         private set
+        get() = containerView
 
     private var dataObserverJob: Job? = null
 
@@ -51,22 +60,24 @@ constructor(
         // Only create if it should be shown
         if (!DailyOutlookView.shouldShow()) {
             Log.d(TAG, "DailyOutlookView.shouldShow() returned false, not showing")
-            // Remove old view if it exists
-            dailyOutlookView?.let { _view ->
-                (_view.parent as? ViewGroup)?.removeView(_view)
+            // Remove container if it exists
+            containerView?.let { container ->
+                (container.parent as? ViewGroup)?.removeView(container)
             }
-            dailyOutlookView = null
+            containerView = null
+            dailyOutlookViews.clear()
             stopDataObservation()
             return
         }
 
-        // Only create a new view if we don't have one already
-        if (dailyOutlookView == null) {
-            // Create the view - it will be added by the ViewDiffer
-            val dailyView = DailyOutlookView(parent.context)
-            dailyView.visibility = View.VISIBLE
-            Log.d(TAG, "[OUTLOOK-CONTROLLER] Created new DailyOutlookView with visibility VISIBLE, view=$dailyView")
-            dailyOutlookView = dailyView
+        // Create container if we don't have one
+        if (containerView == null) {
+            val container = LinearLayout(parent.context)
+            container.orientation = LinearLayout.VERTICAL
+            container.visibility = View.VISIBLE
+            containerView = container
+
+            Log.d(TAG, "[OUTLOOK-CONTROLLER] Created container view")
 
             // Start observing data from the Switchboard service
             Log.d(TAG, "[OUTLOOK-CONTROLLER] Starting data observation")
@@ -77,8 +88,13 @@ constructor(
             serviceConnection.connect()
             Log.d(TAG, "[OUTLOOK-CONTROLLER] serviceConnection.connect() completed")
         } else {
-            Log.d(TAG, "Reusing existing DailyOutlookView: ${dailyOutlookView}")
+            Log.d(TAG, "Reusing existing container with ${dailyOutlookViews.size} DailyOutlookViews")
         }
+    }
+
+    private fun clearAllViews() {
+        containerView?.removeAllViews()
+        dailyOutlookViews.clear()
     }
 
     private fun startDataObservation() {
@@ -101,43 +117,59 @@ constructor(
 
     private fun updateViewWithData(data: com.android.systemui.statusbar.notification.switchboard.DailyOutlookData?) {
         Log.d(TAG, "[OUTLOOK-CONTROLLER] updateViewWithData called with ${data?.events?.size ?: "null"} events")
-        val view = dailyOutlookView ?: run {
-            Log.w(TAG, "[OUTLOOK-CONTROLLER] No view available to update")
+
+        val container = containerView ?: run {
+            Log.w(TAG, "[OUTLOOK-CONTROLLER] No container available")
             return
         }
 
         if (data == null || data.events.isEmpty()) {
             Log.d(TAG, "[OUTLOOK-CONTROLLER] No data to display (data=${data != null}, events=${data?.events?.size ?: 0})")
-            // Use default data when no real data is available
+            // Clear all views when no data
+            clearAllViews()
             return
         }
 
-        // Use the first event for now
-        val firstEvent = data.events.first()
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] Updating view with event: ${firstEvent.header}")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] Event body: ${firstEvent.body.take(100)}")
+        // Clear existing views to refresh with new data
+        clearAllViews()
 
-        // Extract time and location from the event body if possible
-        val bodyLines = firstEvent.body.lines()
-        val time = if (bodyLines.isNotEmpty()) bodyLines[0] else ""
-        val location = if (bodyLines.size > 1) bodyLines[1] else ""
-        val description = if (bodyLines.size > 2) {
-            bodyLines.drop(2).joinToString("\n")
-        } else {
-            firstEvent.body
+        // Create views for up to MAX_OUTLOOK_VIEWS events
+        val eventsToShow = data.events.take(MAX_OUTLOOK_VIEWS)
+        Log.d(TAG, "[OUTLOOK-CONTROLLER] Creating views for ${eventsToShow.size} events (total: ${data.events.size})")
+
+        eventsToShow.forEachIndexed { index, event ->
+            Log.d(TAG, "[OUTLOOK-CONTROLLER] Creating view $index for event: ${event.header}")
+
+            // Create a new view for each event
+            val outlookView = DailyOutlookView(container.context)
+            outlookView.visibility = View.VISIBLE
+
+            // Extract time and location from the event body if possible
+            val bodyLines = event.body.lines()
+            val time = if (bodyLines.isNotEmpty()) bodyLines[0] else ""
+            val location = if (bodyLines.size > 1) bodyLines[1] else ""
+            val description = if (bodyLines.size > 2) {
+                bodyLines.drop(2).joinToString("\n")
+            } else {
+                event.body
+            }
+
+            // Update the view with event data
+            outlookView.updateData(
+                event.header,
+                time,
+                location,
+                description
+            )
+
+            // Add to our list and container
+            dailyOutlookViews.add(outlookView)
+            container.addView(outlookView)
+
+            Log.d(TAG, "[OUTLOOK-CONTROLLER] ✓ View $index created and updated")
         }
 
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] Calling view.updateData with:")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER]   - header: ${firstEvent.header}")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER]   - time: $time")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER]   - location: $location")
-        view.updateData(
-            firstEvent.header,
-            time,
-            location,
-            description
-        )
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] ✓ View updated successfully")
+        Log.d(TAG, "[OUTLOOK-CONTROLLER] ✓ All views updated successfully (${dailyOutlookViews.size} views)")
     }
     
     companion object {
@@ -146,10 +178,11 @@ constructor(
 
     override val view: View
         get() {
-            val v = dailyOutlookView
+            // Return the container view
+            val v = containerView
             if (v == null) {
-                android.util.Log.e(TAG, "view getter called but dailyOutlookView is null!")
-                throw IllegalStateException("DailyOutlookView not initialized")
+                android.util.Log.e(TAG, "view getter called but containerView is null!")
+                throw IllegalStateException("Container view not initialized")
             }
             return v
         }
@@ -163,6 +196,8 @@ constructor(
     fun onDestroy() {
         Log.d(TAG, "Destroying DailyOutlookController")
         stopDataObservation()
+        clearAllViews()
+        containerView = null
         serviceConnection.disconnect()
     }
 }
