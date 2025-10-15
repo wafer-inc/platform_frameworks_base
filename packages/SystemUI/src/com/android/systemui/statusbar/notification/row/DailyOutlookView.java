@@ -19,15 +19,13 @@ import android.widget.TextView;
  */
 public class DailyOutlookView extends ExpandableView {
     private static final String TAG = "DailyOutlookView";
-    
-    private TextView mTitleView;
-    private TextView mTimeView;
-    private TextView mLocationView;
-    private TextView mDescriptionView;
+
+    private LinearLayout mEventsContainer;
     private boolean mIsOnKeyguard = false;
-    
-    // Store a fixed intrinsic height since our content is relatively static
-    private static final int INTRINSIC_HEIGHT_DP = 140;
+
+    // Store a dynamic intrinsic height based on number of events
+    private static final int EVENT_HEIGHT_DP = 140;
+    private static final int EVENT_SPACING_DP = 8;
     private int mIntrinsicHeight;
 
     // Static data for now - will be replaced with dynamic data later
@@ -51,15 +49,45 @@ public class DailyOutlookView extends ExpandableView {
 
     private void initView() {
         Log.d(TAG, "initView - creating UI");
-        
-        // Set the intrinsic height upfront
-        mIntrinsicHeight = dpToPx(INTRINSIC_HEIGHT_DP);
 
-        // Create card container
+        // Set the initial intrinsic height
+        mIntrinsicHeight = dpToPx(EVENT_HEIGHT_DP);
+
+        // Create a container to hold multiple event cards
+        mEventsContainer = new LinearLayout(getContext());
+        mEventsContainer.setOrientation(LinearLayout.VERTICAL);
+
+        // Add container to this view - full width
+        FrameLayout.LayoutParams containerParams = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        );
+        addView(mEventsContainer, containerParams);
+
+        // Set minimum height
+        setMinimumHeight(mIntrinsicHeight);
+
+        // Show default event initially
+        updateWithDefaultData();
+    }
+
+    private void updateWithDefaultData() {
+        clearEvents();
+        addEventCard(DEFAULT_TITLE, DEFAULT_TIME, DEFAULT_LOCATION, DEFAULT_DESCRIPTION);
+    }
+
+    private void clearEvents() {
+        if (mEventsContainer != null) {
+            mEventsContainer.removeAllViews();
+        }
+    }
+
+    private void addEventCard(String title, String time, String location, String description) {
+        // Create card container for this event
         LinearLayout cardContainer = new LinearLayout(getContext());
         cardContainer.setOrientation(LinearLayout.VERTICAL);
         cardContainer.setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16));
-        
+
         // Create background without rounded corners for full-width card
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.WHITE);
@@ -67,7 +95,7 @@ public class DailyOutlookView extends ExpandableView {
         cardContainer.setBackground(background);
         // Remove elevation for flat appearance consistent with notifications
         cardContainer.setElevation(0);
-        
+
         // Layout params for full width TextViews
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -75,50 +103,47 @@ public class DailyOutlookView extends ExpandableView {
         );
 
         // Title
-        mTitleView = new TextView(getContext());
-        mTitleView.setText(DEFAULT_TITLE);
-        mTitleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        mTitleView.setTypeface(Typeface.DEFAULT_BOLD);
-        mTitleView.setTextColor(Color.parseColor("#1A73E8")); // Google blue
-        mTitleView.setPadding(0, 0, 0, dpToPx(8));
+        TextView titleView = new TextView(getContext());
+        titleView.setText(title);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setTextColor(Color.parseColor("#1A73E8")); // Google blue
+        titleView.setPadding(0, 0, 0, dpToPx(8));
 
         // Time
-        mTimeView = new TextView(getContext());
-        mTimeView.setText(DEFAULT_TIME);
-        mTimeView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        mTimeView.setTextColor(Color.parseColor("#202124"));
-        mTimeView.setPadding(0, 0, 0, dpToPx(4));
+        TextView timeView = new TextView(getContext());
+        timeView.setText(time);
+        timeView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        timeView.setTextColor(Color.parseColor("#202124"));
+        timeView.setPadding(0, 0, 0, dpToPx(4));
 
         // Location
-        mLocationView = new TextView(getContext());
-        mLocationView.setText(DEFAULT_LOCATION);
-        mLocationView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        mLocationView.setTextColor(Color.parseColor("#5F6368"));
-        mLocationView.setPadding(0, 0, 0, dpToPx(4));
+        TextView locationView = new TextView(getContext());
+        locationView.setText(location);
+        locationView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        locationView.setTextColor(Color.parseColor("#5F6368"));
+        locationView.setPadding(0, 0, 0, dpToPx(4));
 
         // Description
-        mDescriptionView = new TextView(getContext());
-        mDescriptionView.setText(DEFAULT_DESCRIPTION);
-        mDescriptionView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        mDescriptionView.setTextColor(Color.parseColor("#5F6368"));
-        mDescriptionView.setLineSpacing(dpToPx(2), 1.0f);
+        TextView descriptionView = new TextView(getContext());
+        descriptionView.setText(description);
+        descriptionView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        descriptionView.setTextColor(Color.parseColor("#5F6368"));
+        descriptionView.setLineSpacing(dpToPx(2), 1.0f);
 
         // Add all views to card with full width params
-        cardContainer.addView(mTitleView, textParams);
-        cardContainer.addView(mTimeView, textParams);
-        cardContainer.addView(mLocationView, textParams);
-        cardContainer.addView(mDescriptionView, textParams);
+        cardContainer.addView(titleView, textParams);
+        cardContainer.addView(timeView, textParams);
+        cardContainer.addView(locationView, textParams);
+        cardContainer.addView(descriptionView, textParams);
 
-        // Add card to this view - full width with only vertical margins
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
+        // Add card to events container with margins
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        params.setMargins(0, dpToPx(4), 0, dpToPx(4));
-        addView(cardContainer, params);
-
-        // Set minimum height
-        setMinimumHeight(mIntrinsicHeight);
+        cardParams.setMargins(0, dpToPx(4), 0, dpToPx(4));
+        mEventsContainer.addView(cardContainer, cardParams);
     }
 
     @Override
@@ -136,15 +161,53 @@ public class DailyOutlookView extends ExpandableView {
     }
 
     /**
-     * Update the daily outlook data
+     * Update the daily outlook data with a single event (backwards compatibility)
      */
     public void updateData(String title, String time, String location, String description) {
-        if (mTitleView != null) mTitleView.setText(title);
-        if (mTimeView != null) mTimeView.setText(time);
-        if (mLocationView != null) mLocationView.setText(location);
-        if (mDescriptionView != null) mDescriptionView.setText(description);
-        
+        clearEvents();
+        addEventCard(title, time, location, description);
+        updateIntrinsicHeight(1);
         requestLayout();
+    }
+
+    /**
+     * Update the daily outlook data with multiple events
+     */
+    public void updateMultipleEvents(java.util.List<EventData> events) {
+        clearEvents();
+        if (events == null || events.isEmpty()) {
+            updateWithDefaultData();
+            updateIntrinsicHeight(1);
+        } else {
+            for (EventData event : events) {
+                addEventCard(event.title, event.time, event.location, event.description);
+            }
+            updateIntrinsicHeight(events.size());
+        }
+        requestLayout();
+    }
+
+    private void updateIntrinsicHeight(int eventCount) {
+        // Calculate height based on number of events
+        mIntrinsicHeight = dpToPx(EVENT_HEIGHT_DP * eventCount + EVENT_SPACING_DP * (eventCount - 1));
+        setMinimumHeight(mIntrinsicHeight);
+    }
+
+    /**
+     * Data class for passing event information
+     */
+    public static class EventData {
+        public final String title;
+        public final String time;
+        public final String location;
+        public final String description;
+
+        public EventData(String title, String time, String location, String description) {
+            this.title = title;
+            this.time = time;
+            this.location = location;
+            this.description = description;
+        }
     }
 
     // ========== REQUIRED NOTIFICATION SYSTEM INTEGRATION ==========
