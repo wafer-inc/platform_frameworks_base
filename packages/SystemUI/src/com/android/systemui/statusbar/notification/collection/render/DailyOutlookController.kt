@@ -112,32 +112,32 @@ constructor(
             return
         }
 
-        // Use the first event for now
-        val firstEvent = data.events.first()
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] Updating view with event: ${firstEvent.header}")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] Event body: ${firstEvent.body.take(100)}")
+        // Convert all events to EventData objects
+        val eventDataList = data.events.map { event ->
+            Log.d(TAG, "[OUTLOOK-CONTROLLER] Processing event: ${event.header}")
+            Log.d(TAG, "[OUTLOOK-CONTROLLER] Event body: ${event.body.take(100)}")
 
-        // Extract time and location from the event body if possible
-        val bodyLines = firstEvent.body.lines()
-        val time = if (bodyLines.isNotEmpty()) bodyLines[0] else ""
-        val location = if (bodyLines.size > 1) bodyLines[1] else ""
-        val description = if (bodyLines.size > 2) {
-            bodyLines.drop(2).joinToString("\n")
-        } else {
-            firstEvent.body
+            // Extract time and location from the event body if possible
+            val bodyLines = event.body.lines()
+            val time = if (bodyLines.isNotEmpty()) bodyLines[0] else ""
+            val location = if (bodyLines.size > 1) bodyLines[1] else ""
+            val description = if (bodyLines.size > 2) {
+                bodyLines.drop(2).joinToString("\n")
+            } else {
+                event.body
+            }
+
+            com.android.systemui.statusbar.notification.row.DailyOutlookView.EventData(
+                event.header,
+                time,
+                location,
+                description
+            )
         }
 
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] Calling view.updateData with:")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER]   - header: ${firstEvent.header}")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER]   - time: $time")
-        Log.d(TAG, "[OUTLOOK-CONTROLLER]   - location: $location")
-        view.updateData(
-            firstEvent.header,
-            time,
-            location,
-            description
-        )
-        Log.d(TAG, "[OUTLOOK-CONTROLLER] ✓ View updated successfully")
+        Log.d(TAG, "[OUTLOOK-CONTROLLER] Calling view.updateMultipleEvents with ${eventDataList.size} events")
+        view.updateMultipleEvents(eventDataList)
+        Log.d(TAG, "[OUTLOOK-CONTROLLER] ✓ View updated successfully with ${eventDataList.size} events")
     }
     
     companion object {
