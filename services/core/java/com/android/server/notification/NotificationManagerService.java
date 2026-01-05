@@ -14950,7 +14950,7 @@ public class NotificationManagerService extends SystemService {
         try {
             StatusBarNotification sbn = r.getSbn();
             Notification notification = sbn.getNotification();
-            
+
             // Get the switchboard service via ServiceManager
             android.os.IBinder binder = android.os.ServiceManager.getService("switchboardservice");
             if (binder == null) {
@@ -14964,10 +14964,13 @@ public class NotificationManagerService extends SystemService {
             
             // Extract notification content
             Bundle extras = notification.extras;
-            if (extras != null) {
-                CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
-                CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
-                CharSequence bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+            if (extras == null) {
+                return;
+            }
+
+            CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
+            CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
+            CharSequence bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
                 
                 // Extract ALL extras as JSON - this captures any custom data/deep links
                 // that apps include (from FCM payloads, custom fields, etc.)
@@ -15042,39 +15045,47 @@ public class NotificationManagerService extends SystemService {
                                             intent.getCategories().toString() : "");
                                         extrasJson.put("_intentPackage", intent.getPackage());
                                         
-                                        // Store intent extras
-                                        Bundle intentExtras = intent.getExtras();
-                                        if (intentExtras != null) {
-                                            org.json.JSONObject intentExtrasJson = 
-                                                new org.json.JSONObject();
-                                            for (String key : intentExtras.keySet()) {
-                                                Object value = intentExtras.get(key);
-                                                if (value != null) {
-                                                    if (value instanceof Bundle) {
-                                                        // Unparcel and extract nested bundle
-                                                        Bundle nestedBundle = (Bundle) value;
-                                                        try {
-                                                            // Force unparcelling
-                                                            nestedBundle.size();
-                                                            org.json.JSONObject nestedJson = 
-                                                                new org.json.JSONObject();
-                                                            for (String nKey : nestedBundle.keySet()) {
-                                                                Object nValue = nestedBundle.get(nKey);
-                                                                if (nValue != null) {
-                                                                    nestedJson.put(nKey, nValue.toString());
+                                        // Store intent extras (wrapped to handle custom Parcelables)
+                                        try {
+                                            Bundle intentExtras = intent.getExtras();
+                                            if (intentExtras != null) {
+                                                org.json.JSONObject intentExtrasJson =
+                                                    new org.json.JSONObject();
+                                                for (String key : intentExtras.keySet()) {
+                                                    try {
+                                                        Object value = intentExtras.get(key);
+                                                        if (value != null) {
+                                                            if (value instanceof Bundle) {
+                                                                // Unparcel and extract nested bundle
+                                                                Bundle nestedBundle = (Bundle) value;
+                                                                try {
+                                                                    // Force unparcelling
+                                                                    nestedBundle.size();
+                                                                    org.json.JSONObject nestedJson =
+                                                                        new org.json.JSONObject();
+                                                                    for (String nKey : nestedBundle.keySet()) {
+                                                                        Object nValue = nestedBundle.get(nKey);
+                                                                        if (nValue != null) {
+                                                                            nestedJson.put(nKey, nValue.toString());
+                                                                        }
+                                                                    }
+                                                                    intentExtrasJson.put(key, nestedJson);
+                                                                } catch (Exception e) {
+                                                                    // If unparcelling fails, store as string
+                                                                    intentExtrasJson.put(key, value.toString());
                                                                 }
+                                                            } else {
+                                                                intentExtrasJson.put(key, value.toString());
                                                             }
-                                                            intentExtrasJson.put(key, nestedJson);
-                                                        } catch (Exception e) {
-                                                            // If unparcelling fails, store as string
-                                                            intentExtrasJson.put(key, value.toString());
                                                         }
-                                                    } else {
-                                                        intentExtrasJson.put(key, value.toString());
+                                                    } catch (Exception e) {
+                                                        // Skip keys with custom Parcelables we can't read
                                                     }
                                                 }
+                                                extrasJson.put("_intentExtras", intentExtrasJson);
                                             }
-                                            extrasJson.put("_intentExtras", intentExtrasJson);
+                                        } catch (Exception e) {
+                                            // Intent extras extraction failed entirely, continue without them
                                         }
                                     }
                                 }
@@ -15096,22 +15107,21 @@ public class NotificationManagerService extends SystemService {
                 // Get the notification category (e.g., "transport" for media notifications)
                 String category = notification.category != null ? notification.category : "";
 
-                // Call the new ingestNotification method with notification ID
-                switchboardService.ingestNotification(
-                    sbn.getPackageName(),
-                    sbn.getId(),
-                    sbn.getPostTime(),
-                    title != null ? title.toString() : "",
-                    text != null ? text.toString() : "",
-                    bigText != null ? bigText.toString() : "",
-                    contentIntentStr,
-                    category
-                );
-                
-                if (DBG) {
-                    Slog.d(TAG, "Sent notification to switchboard: " + sbn.getPackageName() 
-                        + "/" + sbn.getId());
-                }
+            // Call the ingestNotification method
+            switchboardService.ingestNotification(
+                sbn.getPackageName(),
+                sbn.getId(),
+                sbn.getPostTime(),
+                title != null ? title.toString() : "",
+                text != null ? text.toString() : "",
+                bigText != null ? bigText.toString() : "",
+                contentIntentStr,
+                category
+            );
+
+            if (DBG) {
+                Slog.d(TAG, "Sent notification to switchboard: " + sbn.getPackageName()
+                    + "/" + sbn.getId());
             }
         } catch (android.os.RemoteException e) {
             // Service communication failed, but don't crash notification system
