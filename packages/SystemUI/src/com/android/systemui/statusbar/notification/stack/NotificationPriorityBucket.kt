@@ -12,7 +12,6 @@ import android.annotation.IntDef
     value =
         [
             BUCKET_UNKNOWN,
-            BUCKET_DAILY_OUTLOOK,
             BUCKET_MEDIA_CONTROLS,
             BUCKET_TOP_ONGOING,
             BUCKET_HEADS_UP,
@@ -50,7 +49,6 @@ annotation class PriorityBucket {
 }
 
 const val BUCKET_UNKNOWN = 0
-const val BUCKET_DAILY_OUTLOOK = 14
 const val BUCKET_MEDIA_CONTROLS = 1
 const val BUCKET_TOP_ONGOING = 8
 const val BUCKET_HEADS_UP = 2

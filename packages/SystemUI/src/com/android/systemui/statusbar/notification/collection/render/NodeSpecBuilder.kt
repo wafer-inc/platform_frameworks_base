@@ -22,7 +22,6 @@ import com.android.systemui.statusbar.notification.collection.ListEntry
 import com.android.systemui.statusbar.notification.collection.NotificationEntry
 import com.android.systemui.statusbar.notification.collection.listbuilder.NotifSection
 import com.android.systemui.statusbar.notification.collection.provider.SectionHeaderVisibilityProvider
-import com.android.systemui.statusbar.notification.row.DailyOutlookView
 import com.android.systemui.util.Compile
 import com.android.app.tracing.traceSection
 
@@ -36,7 +35,6 @@ import com.android.app.tracing.traceSection
  * need to present in the shade, notably the section headers.
  */
 class NodeSpecBuilder(
-    private val dailyOutlookController: DailyOutlookController,
     private val mediaContainerController: MediaContainerController,
     private val sectionsFeatureManager: NotificationSectionsFeatureManager,
     private val sectionHeaderVisibilityProvider: SectionHeaderVisibilityProvider,
@@ -51,16 +49,7 @@ class NodeSpecBuilder(
     ): NodeSpec = traceSection("NodeSpecBuilder.buildNodeSpec") {
         val root = NodeSpecImpl(null, rootController)
 
-        // Add the DailyOutlook as the first child if it should be shown
-        val shouldShow = DailyOutlookView.shouldShow()
-        val hasView = dailyOutlookController.dailyOutlookView != null
-        android.util.Log.d("NodeSpecBuilder", "DailyOutlook: shouldShow=$shouldShow, hasView=$hasView")
-        if (shouldShow && hasView) {
-            android.util.Log.d("NodeSpecBuilder", "Adding DailyOutlook to NodeSpec")
-            root.children.add(NodeSpecImpl(root, dailyOutlookController))
-        }
-
-        // The media container should be added as the next child of the root node
+        // The media container should be added as the first child of the root node
         // TODO: Perhaps the node spec building process should be more of a pipeline of its own?
         if (sectionsFeatureManager.isMediaControlsEnabled()) {
             root.children.add(NodeSpecImpl(root, mediaContainerController))
