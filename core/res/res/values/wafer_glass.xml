@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand palette (from WaferLauncher/WaferBrand/src/com/wafer/brand/Color.kt) -->
+    <color name="wafer_teal">#FF6BE4DF</color>
+    <color name="wafer_black">#FF0C0C0C</color>
+    <color name="wafer_white">#FFE9E7E4</color>
+    <color name="wafer_gray">#FFC4C4C4</color>
+    <color name="wafer_gold">#FFEA821B</color>
+
+    <!-- Glass tints (alpha pre-baked) -->
+    <color name="wafer_glass_tint_dark">#180C0C0C</color>
+    <color name="wafer_glass_tint_light">#80E9E7E4</color>
+    <color name="wafer_glass_border">#40E9E7E4</color>
+    <color name="wafer_glass_button_bg">#59C8C8C8</color>
+
+    <!-- Shadows -->
+    <color name="wafer_shadow">#40000000</color>
+    <color name="wafer_text_shadow">#59000000</color>
+    <dimen name="wafer_shadow_blur">12dp</dimen>
+    <dimen name="wafer_shadow_offset_y">4dp</dimen>
+    <dimen name="wafer_text_shadow_blur">3dp</dimen>
+    <dimen name="wafer_text_shadow_offset_y">1dp</dimen>
+
+    <!-- Blur radii -->
+    <dimen name="wafer_blur_radius_input">25dp</dimen>
+    <dimen name="wafer_blur_radius_card">60dp</dimen>
+    <dimen name="wafer_blur_radius_panel">150dp</dimen>
+
+    <!-- Corners -->
+    <dimen name="wafer_corner_pill">32dp</dimen>
+    <dimen name="wafer_corner_card_lg">32dp</dimen>
+    <dimen name="wafer_corner_card">24dp</dimen>
+    <dimen name="wafer_corner_button">12dp</dimen>
+
+    <!-- Stroke -->
+    <dimen name="wafer_glass_border_width">1dp</dimen>
+</resources>
