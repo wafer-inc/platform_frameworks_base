@@ -7,5 +7,8 @@
 -->
 <resources>
     <color name="wafer_glass_tint_dark">@*android:color/wafer_glass_tint_dark</color>
+    <color name="wafer_shadow">@*android:color/wafer_shadow</color>
     <dimen name="wafer_blur_radius_panel">@*android:dimen/wafer_blur_radius_panel</dimen>
+    <dimen name="wafer_shadow_blur">@*android:dimen/wafer_shadow_blur</dimen>
+    <dimen name="wafer_shadow_offset_y">@*android:dimen/wafer_shadow_offset_y</dimen>
 </resources>

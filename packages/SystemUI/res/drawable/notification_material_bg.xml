@@ -20,9 +20,9 @@
         android:color="?android:attr/colorControlHighlight">
     <item>
         <shape>
-            <solid android:color="@color/wafer_glass_tint_dark" />
-            <stroke android:width="@dimen/wafer_glass_border_width"
-                android:color="@color/wafer_glass_border" />
+            <solid android:color="@*android:color/wafer_glass_tint_dark" />
+            <stroke android:width="@*android:dimen/wafer_glass_border_width"
+                android:color="@*android:color/wafer_glass_border" />
         </shape>
     </item>
     <item>
