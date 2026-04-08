@@ -22,10 +22,14 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PorterDuff;
 import android.graphics.RectF;
 import android.graphics.Rect;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
@@ -78,11 +82,22 @@ public class NotificationBackgroundView extends View implements Dumpable,
     // True only if the dismiss button is visible.
     private boolean mDrawDismissButtonCutout = false;
 
-    // Wafer glass drop shadow.
+    // Wafer glass surface (drawn directly in onDraw to mimic WaferLauncher's
+    // GlassCard recipe over the already-blurred shade backdrop from Phase 02).
     private final Paint mWaferShadowPaint;
+    private final Paint mWaferFillPaint;
+    private final Paint mWaferHighlightPaint;
+    private final Paint mWaferBorderPaint;
     private final RectF mWaferShadowRect = new RectF();
+    private final RectF mWaferCardRect = new RectF();
+    private final RectF mWaferBorderRect = new RectF();
     private final float mWaferShadowOffsetY;
+    private final float mWaferBorderWidth;
     private final int mWaferGlassTint;
+    // Cached top-highlight gradient. Rebuilt only when card height changes.
+    private LinearGradient mWaferHighlightShader;
+    private float mWaferHighlightShaderHeight = -1f;
+    private final Matrix mWaferHighlightMatrix = new Matrix();
 
     public NotificationBackgroundView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -95,13 +110,29 @@ public class NotificationBackgroundView extends View implements Dumpable,
                 com.android.internal.R.attr.materialColorSurfaceContainerHigh);
         mFocusOverlayStroke = getResources().getDimension(R.dimen.notification_focus_stroke_width);
 
-        // Wafer glass: pre-build shadow paint once; never allocate in onDraw.
+        // Wafer glass: pre-build all paints once; never allocate in onDraw.
         final float shadowBlur = getResources().getDimension(R.dimen.wafer_shadow_blur);
         mWaferShadowOffsetY = getResources().getDimension(R.dimen.wafer_shadow_offset_y);
-        mWaferShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        mWaferShadowPaint.setColor(getResources().getColor(R.color.wafer_shadow, null));
-        mWaferShadowPaint.setMaskFilter(new BlurMaskFilter(shadowBlur, BlurMaskFilter.Blur.NORMAL));
+        mWaferBorderWidth = getResources().getDimension(R.dimen.wafer_glass_border_width);
         mWaferGlassTint = getResources().getColor(R.color.wafer_glass_tint_dark, null);
+        final int waferBorderColor = getResources().getColor(R.color.wafer_glass_border, null);
+        final int waferShadowColor = getResources().getColor(R.color.wafer_shadow, null);
+
+        mWaferShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mWaferShadowPaint.setColor(waferShadowColor);
+        mWaferShadowPaint.setMaskFilter(new BlurMaskFilter(shadowBlur, BlurMaskFilter.Blur.NORMAL));
+
+        mWaferFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mWaferFillPaint.setStyle(Paint.Style.FILL);
+        mWaferFillPaint.setColor(mWaferGlassTint);
+
+        mWaferHighlightPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mWaferHighlightPaint.setStyle(Paint.Style.FILL);
+
+        mWaferBorderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mWaferBorderPaint.setStyle(Paint.Style.STROKE);
+        mWaferBorderPaint.setStrokeWidth(mWaferBorderWidth);
+        mWaferBorderPaint.setColor(waferBorderColor);
     }
 
     @Override
@@ -120,6 +151,7 @@ public class NotificationBackgroundView extends View implements Dumpable,
     protected void onDraw(Canvas canvas) {
         if (mClipTopAmount + mClipBottomAmount < getActualHeight() || mExpandAnimationRunning) {
             drawWaferShadow(canvas);
+            drawWaferGlassSurface(canvas);
             canvas.save();
             if (!mExpandAnimationRunning) {
                 canvas.clipRect(0, mClipTopAmount, getWidth(),
@@ -174,6 +206,73 @@ public class NotificationBackgroundView extends View implements Dumpable,
         // hides the small mismatch on rows whose corners differ top vs. bottom.
         final float radius = Math.max(topR, bottomR);
         canvas.drawRoundRect(mWaferShadowRect, radius, radius, mWaferShadowPaint);
+    }
+
+    /**
+     * Wafer glass: paint the layered glass surface (base tint + top highlight
+     * gradient + hairline border) directly on the canvas. This mirrors the
+     * WaferLauncher GlassCard recipe (see GlassCard.kt:64-126 and
+     * GlassMorphism.kt) using only platform Canvas primitives — the launcher's
+     * BlurState/RenderNode pipeline is Compose-only and not reachable from
+     * SystemUI Views, but Phase 02 already blurs the wallpaper at the shade
+     * window level, so the rows sit over a pre-blurred backdrop and only need
+     * the surface treatment to read as glass plates.
+     *
+     * Drawn before the LayerDrawable so the existing state-color overlay
+     * (layer 1) and focus-overlay (layer 2) draw on top of the glass surface,
+     * preserving press / hover / keyboard-focus feedback.
+     */
+    private void drawWaferGlassSurface(Canvas canvas) {
+        if (mBackground == null) {
+            return;
+        }
+        final int top = mClipTopAmount;
+        final int bottom = getActualHeight() - mClipBottomAmount;
+        if (bottom <= top) {
+            return;
+        }
+        final float left = 0f;
+        final float right = getWidth();
+        mWaferCardRect.set(left, top, right, bottom);
+
+        final float topR = mCornerRadii[0];
+        final float bottomR = mCornerRadii[4];
+        final float radius = Math.max(topR, bottomR);
+
+        // 1. Base tint fill — wafer_glass_tint_dark over the (already-blurred)
+        //    shade backdrop. This is what gives the row its "glass plate" body.
+        canvas.drawRoundRect(mWaferCardRect, radius, radius, mWaferFillPaint);
+
+        // 2. Top highlight gradient — fakes light catching the upper edge of the
+        //    glass plate. Vertical: ~25% white at the very top, fading to fully
+        //    transparent by the midpoint of the card. Subtle but enough to make
+        //    the card read as a layered surface rather than a flat tint.
+        final float cardHeight = mWaferCardRect.height();
+        if (cardHeight > 0f) {
+            if (mWaferHighlightShader == null || mWaferHighlightShaderHeight != cardHeight) {
+                mWaferHighlightShader = new LinearGradient(
+                        0f, mWaferCardRect.top,
+                        0f, mWaferCardRect.top + cardHeight * 0.5f,
+                        0x40FFFFFF, // white @ ~25%
+                        0x00FFFFFF, // transparent
+                        Shader.TileMode.CLAMP);
+                mWaferHighlightShaderHeight = cardHeight;
+                mWaferHighlightPaint.setShader(mWaferHighlightShader);
+            } else {
+                // Same height, but the rect's vertical position may have shifted
+                // (clipping changed). Re-translate the shader to match.
+                mWaferHighlightMatrix.setTranslate(0f, mWaferCardRect.top);
+                mWaferHighlightShader.setLocalMatrix(mWaferHighlightMatrix);
+            }
+            canvas.drawRoundRect(mWaferCardRect, radius, radius, mWaferHighlightPaint);
+        }
+
+        // 3. Hairline border — wafer_glass_border. Inset by half the stroke width
+        //    so the stroke sits inside the rounded rect and doesn't get clipped.
+        final float inset = mWaferBorderWidth * 0.5f;
+        mWaferBorderRect.set(left + inset, top + inset, right - inset, bottom - inset);
+        final float borderRadius = Math.max(0f, radius - inset);
+        canvas.drawRoundRect(mWaferBorderRect, borderRadius, borderRadius, mWaferBorderPaint);
     }
 
     private Path calculateDismissButtonCutoutPath(Rect backgroundBounds) {
@@ -323,14 +422,14 @@ public class NotificationBackgroundView extends View implements Dumpable,
     }
 
     public void setTint(int tintColor) {
-        // Wafer glass: ignore per-row tint requests so every notification renders
-        // as the wafer glass card. setColor() updates only the solid fill, leaving
-        // the stroke (border) defined in notification_material_bg.xml intact.
+        // Wafer glass: layer 0 of notification_material_bg.xml is fully transparent
+        // and the wafer surface is painted in onDraw(), so SRC_ATOP tinting here
+        // is a no-op on the visible card. We still call through to keep the rest
+        // of the legacy state machinery (state colors on layer 1) consistent with
+        // mTintColor.
         Drawable baseLayer = getBaseBackgroundLayer();
-        if (baseLayer instanceof GradientDrawable gradient) {
-            gradient.mutate();
-            gradient.setColor(mWaferGlassTint);
-        }
+        baseLayer.mutate().setTintMode(PorterDuff.Mode.SRC_ATOP);
+        baseLayer.setTint(tintColor);
         mTintColor = tintColor;
         setStatefulColors();
         invalidate();
