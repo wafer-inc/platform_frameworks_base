@@ -17,8 +17,8 @@
 
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
        android:shape="rectangle">
-    <solid android:color="@color/wafer_glass_tint_dark" />
-    <stroke android:width="@dimen/wafer_glass_border_width"
-        android:color="@color/wafer_glass_border" />
-    <corners android:radius="@dimen/wafer_corner_card" />
+    <solid android:color="@*android:color/wafer_glass_tint_dark" />
+    <stroke android:width="@*android:dimen/wafer_glass_border_width"
+        android:color="@*android:color/wafer_glass_border" />
+    <corners android:radius="@*android:dimen/wafer_corner_card" />
 </shape>
