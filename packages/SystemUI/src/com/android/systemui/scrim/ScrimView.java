@@ -37,10 +37,10 @@ import android.view.View;
 
 import androidx.annotation.Nullable;
 
-import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.colorextraction.ColorExtractor;
+import com.android.systemui.res.R;
 import com.android.systemui.shade.TouchLogger;
 import com.android.systemui.util.LargeScreenUtils;
 
