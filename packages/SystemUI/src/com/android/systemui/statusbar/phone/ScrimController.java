@@ -179,17 +179,23 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
     /**
      * Default alpha value for most scrims.
      */
-    protected static final float KEYGUARD_SCRIM_ALPHA = 0.2f;
+    protected static final float KEYGUARD_SCRIM_ALPHA = 0.30f;
     /**
      * Scrim opacity when the phone is about to wake-up.
      */
     public static final float WAKE_SENSOR_SCRIM_ALPHA = 0.6f;
 
     /**
-     * The default scrim under the shade and dialogs.
-     * This should not be lower than 0.54, otherwise we won't pass GAR.
+     * The default scrim under the shade and dialogs. Wafer reskin: lowered from 1f so the
+     * frosted-glass shade lets the blurred backdrop show through instead of fully obscuring it.
      */
-    public static final float BUSY_SCRIM_ALPHA = 1f;
+    public static final float BUSY_SCRIM_ALPHA = 0.25f;
+
+    /**
+     * Wafer reskin: bouncer (PIN entry) needs more contrast than the rest of the shade,
+     * so it overrides {@link #BUSY_SCRIM_ALPHA} via {@link ScrimState#BOUNCER}.
+     */
+    public static final float WAFER_BOUNCER_SCRIM_ALPHA = 0.40f;
 
     /**
      * Scrim opacity that can have text on top.
