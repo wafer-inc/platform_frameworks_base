@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wafer reskin (Phase 02) — SystemUI-local aliases for the framework wafer_glass
+  tokens. We mirror them here so that ScrimView can read them via
+  com.android.systemui.res.R without requiring the underlying framework symbols
+  to be exposed through frameworks/base/core/res/.../symbols.xml.
+-->
+<resources>
+    <color name="wafer_glass_tint_dark">@*android:color/wafer_glass_tint_dark</color>
+    <dimen name="wafer_blur_radius_panel">@*android:dimen/wafer_blur_radius_panel</dimen>
+</resources>
