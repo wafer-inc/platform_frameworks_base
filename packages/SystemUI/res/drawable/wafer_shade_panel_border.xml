@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wafer reskin (Phase 02) — hairline border drawn around the notification shade
+  panel. Hairline tint and width come from the framework wafer_glass tokens
+  added in Phase 00 (frameworks/base/core/res/res/values/wafer_glass.xml).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+       android:shape="rectangle">
+    <stroke
+        android:width="@*android:dimen/wafer_glass_border_width"
+        android:color="@*android:color/wafer_glass_border" />
+    <solid android:color="@android:color/transparent" />
+</shape>
