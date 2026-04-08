@@ -18,11 +18,14 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android"
         xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
         android:color="?android:attr/colorControlHighlight">
+    <!-- Wafer reskin: layer 0 is transparent. NotificationBackgroundView paints
+         the wafer glass surface (base tint, top highlight gradient, hairline
+         border, drop shadow) directly in onDraw. This layer is kept so existing
+         code paths (getBaseBackgroundLayer, updateBackgroundRadii, expand-anim
+         AA toggling) still find a GradientDrawable at index 0. -->
     <item>
         <shape>
-            <solid android:color="@*android:color/wafer_glass_tint_dark" />
-            <stroke android:width="@*android:dimen/wafer_glass_border_width"
-                android:color="@*android:color/wafer_glass_border" />
+            <solid android:color="@android:color/transparent" />
         </shape>
     </item>
     <item>
