@@ -20,9 +20,11 @@ import static com.android.systemui.util.ColorUtilKt.hexColorString;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.PorterDuff;
+import android.graphics.RectF;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -76,6 +78,12 @@ public class NotificationBackgroundView extends View implements Dumpable,
     // True only if the dismiss button is visible.
     private boolean mDrawDismissButtonCutout = false;
 
+    // Wafer glass drop shadow.
+    private final Paint mWaferShadowPaint;
+    private final RectF mWaferShadowRect = new RectF();
+    private final float mWaferShadowOffsetY;
+    private final int mWaferGlassTint;
+
     public NotificationBackgroundView(Context context, AttributeSet attrs) {
         super(context, attrs);
         mDontModifyCorners = getResources().getBoolean(R.bool.config_clipNotificationsToOutline);
@@ -86,6 +94,14 @@ public class NotificationBackgroundView extends View implements Dumpable,
         mNormalColor = Utils.getColorAttrDefaultColor(mContext,
                 com.android.internal.R.attr.materialColorSurfaceContainerHigh);
         mFocusOverlayStroke = getResources().getDimension(R.dimen.notification_focus_stroke_width);
+
+        // Wafer glass: pre-build shadow paint once; never allocate in onDraw.
+        final float shadowBlur = getResources().getDimension(R.dimen.wafer_shadow_blur);
+        mWaferShadowOffsetY = getResources().getDimension(R.dimen.wafer_shadow_offset_y);
+        mWaferShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mWaferShadowPaint.setColor(getResources().getColor(R.color.wafer_shadow, null));
+        mWaferShadowPaint.setMaskFilter(new BlurMaskFilter(shadowBlur, BlurMaskFilter.Blur.NORMAL));
+        mWaferGlassTint = getResources().getColor(R.color.wafer_glass_tint_dark, null);
     }
 
     @Override
@@ -103,6 +119,7 @@ public class NotificationBackgroundView extends View implements Dumpable,
     @Override
     protected void onDraw(Canvas canvas) {
         if (mClipTopAmount + mClipBottomAmount < getActualHeight() || mExpandAnimationRunning) {
+            drawWaferShadow(canvas);
             canvas.save();
             if (!mExpandAnimationRunning) {
                 canvas.clipRect(0, mClipTopAmount, getWidth(),
@@ -131,6 +148,32 @@ public class NotificationBackgroundView extends View implements Dumpable,
 
             canvas.restore();
         }
+    }
+
+    /**
+     * Wafer glass: draw a soft drop shadow under the notification card before the
+     * background draws over it. Uses the live programmatic corner radii so the shadow
+     * always matches the row's current rounding (expand/collapse, group children, etc).
+     * Allocations are kept out of this path — the paint and rect are pre-built.
+     */
+    private void drawWaferShadow(Canvas canvas) {
+        if (mBackground == null) {
+            return;
+        }
+        final int top = mClipTopAmount;
+        final int bottom = getActualHeight() - mClipBottomAmount;
+        if (bottom <= top) {
+            return;
+        }
+        mWaferShadowRect.set(0f, top + mWaferShadowOffsetY,
+                getWidth(), bottom + mWaferShadowOffsetY);
+        final float topR = mCornerRadii[0];
+        final float bottomR = mCornerRadii[4];
+        // GradientDrawable supports per-corner radii but Canvas.drawRoundRect only
+        // takes a single rx/ry, so use the larger of the two — the shadow's blur
+        // hides the small mismatch on rows whose corners differ top vs. bottom.
+        final float radius = Math.max(topR, bottomR);
+        canvas.drawRoundRect(mWaferShadowRect, radius, radius, mWaferShadowPaint);
     }
 
     private Path calculateDismissButtonCutoutPath(Rect backgroundBounds) {
@@ -280,9 +323,14 @@ public class NotificationBackgroundView extends View implements Dumpable,
     }
 
     public void setTint(int tintColor) {
+        // Wafer glass: ignore per-row tint requests so every notification renders
+        // as the wafer glass card. setColor() updates only the solid fill, leaving
+        // the stroke (border) defined in notification_material_bg.xml intact.
         Drawable baseLayer = getBaseBackgroundLayer();
-        baseLayer.mutate().setTintMode(PorterDuff.Mode.SRC_ATOP);
-        baseLayer.setTint(tintColor);
+        if (baseLayer instanceof GradientDrawable gradient) {
+            gradient.mutate();
+            gradient.setColor(mWaferGlassTint);
+        }
         mTintColor = tintColor;
         setStatefulColors();
         invalidate();
