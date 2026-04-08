@@ -15,18 +15,19 @@
   ~ limitations under the License.
   -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
     android:color="?android:attr/colorControlHighlight">
     <item>
         <inset
             android:insetBottom="4dp"
             android:insetTop="4dp">
             <shape android:shape="rectangle">
-                <corners android:radius="20dp" />
+                <corners android:radius="@dimen/wafer_corner_pill" />
                 <padding
                     android:left="20dp"
                     android:right="20dp" />
-                <solid android:color="?androidprv:attr/materialColorSurfaceContainerHigh" />
+                <solid android:color="@color/wafer_glass_button_bg" />
+                <stroke android:width="@dimen/wafer_glass_border_width"
+                    android:color="@color/wafer_glass_border" />
             </shape>
         </inset>
     </item>
