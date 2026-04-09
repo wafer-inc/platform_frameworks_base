@@ -77,15 +77,15 @@ public class QSIconViewImpl extends QSIconView {
         mIconSizePx = res.getDimensionPixelSize(R.dimen.qs_icon_size);
 
         if (qsNewTiles()) { // pre-load icon tint colors
-            // Wafer reskin (Phase 04): the QS tile glass surface is
-            // identical in every state — activation is signalled by
-            // lighting up the icon and the card border in wafer_teal.
-            // Inactive tiles use wafer_white; unavailable falls back to
+            // Wafer reskin (Phase 04): iOS-style inversion. Active tile
+            // is a solid wafer_white card, so the icon flips to
+            // wafer_black for contrast. Inactive tiles are dark glass
+            // with wafer_white icons; unavailable falls back to
             // wafer_gray and the view-level UNAVAILABLE_ALPHA fade does
             // the rest.
             mColorUnavailable = context.getColor(R.color.wafer_gray);
             mColorInactive = context.getColor(R.color.wafer_white);
-            mColorActive = context.getColor(R.color.wafer_teal);
+            mColorActive = context.getColor(R.color.wafer_black);
         }
 
         mIcon = createIcon();
@@ -275,15 +275,14 @@ public class QSIconViewImpl extends QSIconView {
      * Color to tint the tile icon based on state
      */
     private static int getIconColorForState(Context context, QSTile.State state) {
-        // Wafer reskin (Phase 04): teal icon = on, white icon = off,
-        // gray icon = unavailable. The glass-card surface itself stays
-        // identical between states.
+        // Wafer reskin (Phase 04): iOS-style inversion. Active = dark
+        // icon on white card, inactive = white icon on dark glass.
         if (state.disabledByPolicy || state.state == Tile.STATE_UNAVAILABLE) {
             return context.getColor(R.color.wafer_gray);
         } else if (state.state == Tile.STATE_INACTIVE) {
             return context.getColor(R.color.wafer_white);
         } else if (state.state == Tile.STATE_ACTIVE) {
-            return context.getColor(R.color.wafer_teal);
+            return context.getColor(R.color.wafer_black);
         } else {
             Log.e("QSIconView", "Invalid state " + state);
             return 0;
