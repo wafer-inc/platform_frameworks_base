@@ -123,36 +123,48 @@ constructor(
             updateHeight()
         }
 
-    // Wafer reskin (Phase 04): tile background colours come from the Wafer
-    // glass tokens, not Material You theme attributes. The visible card is
-    // painted by [glassDelegate]; these ints are also fed to it via
-    // [setColor] so the in-flight ARGB animator interpolates between two
-    // Wafer brand colours rather than between Material You shades.
-    private val colorActive = context.getColor(R.color.wafer_teal)
-    private val colorInactive = context.getColor(R.color.wafer_glass_button_bg)
-    private val colorUnavailable = context.getColor(R.color.wafer_glass_tint_dark)
+    // Wafer reskin (Phase 04): the per-tile glass card uses the same
+    // controller-default tint as notifications (i.e. no per-instance tint
+    // override) so QS tiles and notifications read as the same surface
+    // family. Activation is communicated by lighting up the *border* and
+    // the *icon*, not by repainting the card. The "background" int that
+    // flows through [setColor] is therefore now the **border** colour:
+    // active = wafer_teal, inactive/unavailable = the default glass
+    // border. The existing ARGB animator drives the border colour fade
+    // for free.
+    private val defaultBorderColor = WaferGlassTokens.glassBorder(context)
+    private val defaultBorderWidthPx = WaferGlassTokens.glassBorderWidthPx(context)
+    private val activeBorderWidthPx = defaultBorderWidthPx * 2.5f
 
+    private val colorActive = context.getColor(R.color.wafer_teal)
+    private val colorInactive = defaultBorderColor
+    private val colorUnavailable = defaultBorderColor
+
+    // Hover/focus overlay — kept subtle so it doesn't fight the glass.
     private val overlayColorActive =
-        Utils.applyAlpha(/* alpha= */ 0.11f, context.getColor(R.color.wafer_black))
+        Utils.applyAlpha(/* alpha= */ 0.10f, context.getColor(R.color.wafer_white))
     private val overlayColorInactive =
         Utils.applyAlpha(/* alpha= */ 0.08f, context.getColor(R.color.wafer_white))
 
-    private val colorLabelActive = context.getColor(R.color.wafer_black)
+    // Labels stay white in every state — the icon (teal vs white) is what
+    // signals on/off, the label is just the name and should be readable.
+    // The view-level UNAVAILABLE_ALPHA fade handles the unavailable case.
+    private val colorLabelActive = context.getColor(R.color.wafer_white)
     private val colorLabelInactive = context.getColor(R.color.wafer_white)
-    private val colorLabelUnavailable = context.getColor(R.color.wafer_gray)
+    private val colorLabelUnavailable = context.getColor(R.color.wafer_white)
 
     private val colorSecondaryLabelActive =
-        Utils.applyAlpha(/* alpha= */ 0.7f, context.getColor(R.color.wafer_black))
+        Utils.applyAlpha(/* alpha= */ 0.7f, context.getColor(R.color.wafer_white))
     private val colorSecondaryLabelInactive =
         Utils.applyAlpha(/* alpha= */ 0.7f, context.getColor(R.color.wafer_white))
-    private val colorSecondaryLabelUnavailable = context.getColor(R.color.wafer_gray)
+    private val colorSecondaryLabelUnavailable =
+        Utils.applyAlpha(/* alpha= */ 0.7f, context.getColor(R.color.wafer_white))
 
     // Wafer reskin (Phase 04): per-tile glass card. Mirrors the
     // NotificationBackgroundView pattern from Phase 03 — host the delegate
     // on the tile view itself, draw the backdrop before the tile contents,
-    // and route per-state tints through setTint() rather than the legacy
-    // GradientDrawable. The delegate auto-discovers the shade-window
-    // WaferGlassController installed by WaferShadeGlassSource.
+    // and let the controller drive the fill tint so QS tiles match the
+    // notification cards.
     private val glassDelegate =
         WaferGlassDelegate(
             this,
@@ -848,13 +860,20 @@ constructor(
     }
 
     private fun setColor(color: Int) {
-        // Wafer reskin (Phase 04): the legacy base drawable is held at
-        // transparent in createTileBackground(); the visible tile colour
-        // is owned by the glass delegate. The animator interpolates ARGB
-        // between the per-state Wafer colours and feeds them through here
-        // every frame, so the transition stays smooth.
+        // Wafer reskin (Phase 04): the visible tile fill is the same
+        // controller-default glass tint as notifications — never an
+        // override — so QS tiles read as the same surface family. The
+        // `color` int that flows through the existing ARGB animator is
+        // now the *border* colour (active = teal, inactive = the default
+        // glass border), which gives a smooth border-colour fade for
+        // free. Border width is also bumped on terminal frames so the
+        // active border reads as a clear accent.
         backgroundColor = color
-        glassDelegate.setTint(color)
+        glassDelegate.clearTintOverride()
+        glassDelegate.setBorderColor(color)
+        glassDelegate.setBorderWidth(
+            if (color == colorActive) activeBorderWidthPx else defaultBorderWidthPx
+        )
     }
 
     private fun setLabelColor(color: Int) {
@@ -1131,8 +1150,10 @@ constructor(
                 getChevronColorForState(Tile.STATE_ACTIVE),
                 getOverlayColorForState(Tile.STATE_ACTIVE),
                 // Wafer reskin (Phase 04): final long-press icon tint is
-                // wafer_black (matches the active glass-card fill).
-                context.getColor(R.color.wafer_black),
+                // wafer_teal — matches the active-state icon colour from
+                // QSIconViewImpl now that activation lights up the icon
+                // and border instead of repainting the card.
+                context.getColor(R.color.wafer_teal),
             )
         prepareForLaunch()
     }
