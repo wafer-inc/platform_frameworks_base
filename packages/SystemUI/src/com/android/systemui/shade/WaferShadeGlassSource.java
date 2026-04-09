@@ -257,5 +257,11 @@ public final class WaferShadeGlassSource {
         mController.setSourceLocationInWindow(mZeroLoc);
         // Force the next frame to re-blur from the new source.
         mController.invalidateSource();
+        Log.i(TAG, "recordSource[done]: sourceNode hasDisplayList="
+                + mSourceNode.hasDisplayList()
+                + " bitmap recycled=" + bitmap.isRecycled()
+                + " bitmap=" + bitmap.getWidth() + "x" + bitmap.getHeight()
+                + " window=" + mSourceWidth + "x" + mSourceHeight
+                + " scale=" + scale + " dx=" + dx + " dy=" + dy);
     }
 }
