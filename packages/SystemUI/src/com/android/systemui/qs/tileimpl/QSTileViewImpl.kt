@@ -24,6 +24,7 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.content.res.Resources.ID_NULL
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.Rect
@@ -71,6 +72,8 @@ import com.android.systemui.plugins.qs.QSTileView
 import com.android.systemui.qs.logging.QSLogger
 import com.android.systemui.qs.tileimpl.QSIconViewImpl.QS_ANIM_LENGTH
 import com.android.systemui.res.R
+import com.wafer.glass.WaferGlassDelegate
+import com.wafer.glass.tokens.WaferGlassTokens
 import java.util.Objects
 
 private const val TAG = "QSTileViewImpl"
@@ -120,31 +123,42 @@ constructor(
             updateHeight()
         }
 
-    private val colorActive = Utils.getColorAttrDefaultColor(context, R.attr.shadeActive)
-    private val colorInactive = Utils.getColorAttrDefaultColor(context, R.attr.shadeInactive)
-    private val colorUnavailable = Utils.getColorAttrDefaultColor(context, R.attr.shadeDisabled)
+    // Wafer reskin (Phase 04): tile background colours come from the Wafer
+    // glass tokens, not Material You theme attributes. The visible card is
+    // painted by [glassDelegate]; these ints are also fed to it via
+    // [setColor] so the in-flight ARGB animator interpolates between two
+    // Wafer brand colours rather than between Material You shades.
+    private val colorActive = context.getColor(R.color.wafer_teal)
+    private val colorInactive = context.getColor(R.color.wafer_glass_button_bg)
+    private val colorUnavailable = context.getColor(R.color.wafer_glass_tint_dark)
 
     private val overlayColorActive =
-        Utils.applyAlpha(
-            /* alpha= */ 0.11f,
-            Utils.getColorAttrDefaultColor(context, R.attr.onShadeActive),
-        )
+        Utils.applyAlpha(/* alpha= */ 0.11f, context.getColor(R.color.wafer_black))
     private val overlayColorInactive =
-        Utils.applyAlpha(
-            /* alpha= */ 0.08f,
-            Utils.getColorAttrDefaultColor(context, R.attr.onShadeInactive),
-        )
+        Utils.applyAlpha(/* alpha= */ 0.08f, context.getColor(R.color.wafer_white))
 
-    private val colorLabelActive = Utils.getColorAttrDefaultColor(context, R.attr.onShadeActive)
-    private val colorLabelInactive = Utils.getColorAttrDefaultColor(context, R.attr.onShadeInactive)
-    private val colorLabelUnavailable = Utils.getColorAttrDefaultColor(context, R.attr.outline)
+    private val colorLabelActive = context.getColor(R.color.wafer_black)
+    private val colorLabelInactive = context.getColor(R.color.wafer_white)
+    private val colorLabelUnavailable = context.getColor(R.color.wafer_gray)
 
     private val colorSecondaryLabelActive =
-        Utils.getColorAttrDefaultColor(context, R.attr.onShadeActiveVariant)
+        Utils.applyAlpha(/* alpha= */ 0.7f, context.getColor(R.color.wafer_black))
     private val colorSecondaryLabelInactive =
-        Utils.getColorAttrDefaultColor(context, R.attr.onShadeInactiveVariant)
-    private val colorSecondaryLabelUnavailable =
-        Utils.getColorAttrDefaultColor(context, R.attr.outline)
+        Utils.applyAlpha(/* alpha= */ 0.7f, context.getColor(R.color.wafer_white))
+    private val colorSecondaryLabelUnavailable = context.getColor(R.color.wafer_gray)
+
+    // Wafer reskin (Phase 04): per-tile glass card. Mirrors the
+    // NotificationBackgroundView pattern from Phase 03 — host the delegate
+    // on the tile view itself, draw the backdrop before the tile contents,
+    // and route per-state tints through setTint() rather than the legacy
+    // GradientDrawable. The delegate auto-discovers the shade-window
+    // WaferGlassController installed by WaferShadeGlassSource.
+    private val glassDelegate =
+        WaferGlassDelegate(
+            this,
+            WaferGlassTokens.blurRadiusCardPx(context),
+            WaferGlassTokens.cornerCardPx(context),
+        )
 
     private lateinit var label: TextView
     protected lateinit var secondaryLabel: TextView
@@ -345,7 +359,31 @@ constructor(
         backgroundOverlayDrawable =
             backgroundDrawable.findDrawableByLayerId(R.id.qs_tile_background_overlay)
         backgroundOverlayDrawable.mutate().setTintMode(PorterDuff.Mode.SRC)
+        // Wafer reskin (Phase 04): the visible card is the glass delegate;
+        // hide the legacy base layer (the ripple mask still uses the same
+        // shape, so ripple bounds are unaffected).
+        backgroundBaseDrawable.mutate().setTint(Color.TRANSPARENT)
         return qsTileBackground
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        glassDelegate.onAttachedToWindow()
+    }
+
+    override fun onDetachedFromWindow() {
+        glassDelegate.onDetachedFromWindow()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        glassDelegate.onSizeChanged(w, h)
+    }
+
+    override fun draw(canvas: Canvas) {
+        glassDelegate.drawGlassBackdrop(canvas)
+        super.draw(canvas)
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
@@ -810,8 +848,13 @@ constructor(
     }
 
     private fun setColor(color: Int) {
-        backgroundBaseDrawable.mutate().setTint(color)
+        // Wafer reskin (Phase 04): the legacy base drawable is held at
+        // transparent in createTileBackground(); the visible tile colour
+        // is owned by the glass delegate. The animator interpolates ARGB
+        // between the per-state Wafer colours and feeds them through here
+        // every frame, so the transition stays smooth.
         backgroundColor = color
+        glassDelegate.setTint(color)
     }
 
     private fun setLabelColor(color: Int) {
@@ -970,6 +1013,16 @@ constructor(
             right = newWidth - deltaW,
             bottom = newHeight - deltaH,
         )
+        // Wafer reskin (Phase 04): the visible card is the glass delegate,
+        // so mirror the long-press grow-rect into its local rect. Without
+        // this, only the legacy (invisible) drawable would grow and the
+        // user would see no morph on the glass card at all.
+        glassDelegate.setLocalRect(
+            -deltaW,
+            -deltaH,
+            newWidth - deltaW,
+            newHeight - deltaH,
+        )
 
         // Radius change
         val newRadius =
@@ -1028,7 +1081,12 @@ constructor(
             right = initialLongPressProperties?.width?.toInt() ?: measuredWidth,
             bottom = initialLongPressProperties?.height?.toInt() ?: measuredHeight,
         )
-        changeCornerRadius(resources.getDimensionPixelSize(R.dimen.qs_corner_radius).toFloat())
+        // Wafer reskin (Phase 04): clear the delegate's local rect override
+        // so it returns to painting the full host view.
+        glassDelegate.setLocalRect(0, 0, -1, -1)
+        changeCornerRadius(
+            resources.getDimensionPixelSize(R.dimen.wafer_corner_card).toFloat()
+        )
         setAllColors(
             getBackgroundColorForState(lastState, lastDisabledByPolicy),
             getLabelColorForState(lastState, lastDisabledByPolicy),
@@ -1042,11 +1100,18 @@ constructor(
 
     @VisibleForTesting
     fun initializeLongPressProperties(startingHeight: Int, startingWidth: Int) {
+        // Wafer reskin (Phase 04): corners match the rest of the Wafer
+        // card system (wafer_corner_card, 24dp) instead of the stock
+        // qs_corner_radius (28dp), so after a long-press morph + reset the
+        // card stays visually consistent with the ripple mask and the
+        // other glass surfaces.
+        val waferCornerPx =
+            resources.getDimensionPixelSize(R.dimen.wafer_corner_card).toFloat()
         initialLongPressProperties =
             QSLongPressProperties(
                 height = startingHeight.toFloat(),
                 width = startingWidth.toFloat(),
-                resources.getDimensionPixelSize(R.dimen.qs_corner_radius).toFloat(),
+                waferCornerPx,
                 getBackgroundColorForState(lastState),
                 getLabelColorForState(lastState),
                 getSecondaryLabelColorForState(lastState),
@@ -1059,13 +1124,15 @@ constructor(
             QSLongPressProperties(
                 height = LONG_PRESS_EFFECT_HEIGHT_SCALE * startingHeight,
                 width = LONG_PRESS_EFFECT_WIDTH_SCALE * startingWidth,
-                resources.getDimensionPixelSize(R.dimen.qs_corner_radius).toFloat() - 20,
+                waferCornerPx - 20,
                 getBackgroundColorForState(Tile.STATE_ACTIVE),
                 getLabelColorForState(Tile.STATE_ACTIVE),
                 getSecondaryLabelColorForState(Tile.STATE_ACTIVE),
                 getChevronColorForState(Tile.STATE_ACTIVE),
                 getOverlayColorForState(Tile.STATE_ACTIVE),
-                Utils.getColorAttrDefaultColor(context, R.attr.onShadeActive),
+                // Wafer reskin (Phase 04): final long-press icon tint is
+                // wafer_black (matches the active glass-card fill).
+                context.getColor(R.color.wafer_black),
             )
         prepareForLaunch()
     }
@@ -1077,6 +1144,11 @@ constructor(
                 layer.cornerRadius = radius
             }
         }
+        // Wafer reskin (Phase 04): the visible card is the glass delegate,
+        // so the long-press corner-radius morph has to drive its corners
+        // too — otherwise the legacy (invisible) drawable layers morph
+        // alone and the user sees no rounded-rect change at all.
+        glassDelegate.setCornerRadius(radius)
     }
 
     @VisibleForTesting

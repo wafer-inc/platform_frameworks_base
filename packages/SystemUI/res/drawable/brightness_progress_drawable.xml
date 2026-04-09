@@ -25,7 +25,8 @@
             <shape>
                 <size android:height="@dimen/rounded_slider_track_width" />
                 <corners android:radius="@dimen/rounded_slider_track_corner_radius" />
-                <solid android:color="?androidprv:attr/customColorShadeInactive" />
+                <!-- Wafer reskin (Phase 04): inactive track uses the glass button bg token. -->
+                <solid android:color="@*android:color/wafer_glass_button_bg" />
             </shape>
         </inset>
     </item>

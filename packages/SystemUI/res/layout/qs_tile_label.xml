@@ -39,6 +39,10 @@
         android:singleLine="true"
         android:focusable="false"
         android:importantForAccessibility="no"
+        android:shadowColor="@*android:color/wafer_text_shadow"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="2"
         android:textAppearance="@style/TextAppearance.QS.TileLabel"/>
 
     <com.android.systemui.util.DelayableMarqueeTextView
@@ -53,6 +57,10 @@
         android:visibility="gone"
         android:focusable="false"
         android:importantForAccessibility="no"
+        android:shadowColor="@*android:color/wafer_text_shadow"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="2"
         android:textAppearance="@style/TextAppearance.QS.TileLabel.Secondary"
         android:textColor="?attr/onShadeInactive"/>
 
