@@ -324,6 +324,8 @@ import android.view.accessibility.AccessibilityManager;
 import android.widget.RemoteViews;
 import android.widget.Toast;
 
+import switchboard.ISwitchboardService;
+
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
@@ -9524,6 +9526,9 @@ public class NotificationManagerService extends SystemService {
                                         getGroupInstanceId(r.getSbn().getGroupKey()));
                         notifyListenersPostedAndLogLocked(r, old, mTracker, maybeReport);
                         posted = true;
+                        
+                        // Send notification data to ingestion service
+                        sendNotificationToSwitchboard(r);
 
                         if (!android.app.Flags.checkAutogroupBeforePost()) {
                             StatusBarNotification oldSbn = (old != null) ? old.getSbn() : null;
@@ -13665,6 +13670,192 @@ public class NotificationManagerService extends SystemService {
                 }
             }
             return false;
+        }
+    }
+
+    private void sendNotificationToSwitchboard(NotificationRecord r) {
+        try {
+            StatusBarNotification sbn = r.getSbn();
+            Notification notification = sbn.getNotification();
+
+            // Get the switchboard service via ServiceManager
+            android.os.IBinder binder = android.os.ServiceManager.getService("switchboardservice");
+            if (binder == null) {
+                if (DBG) Slog.w(TAG, "Switchboard service not available");
+                return;
+            }
+            
+            // Convert to ISwitchboardService interface
+            switchboard.ISwitchboardService switchboardService = 
+                switchboard.ISwitchboardService.Stub.asInterface(binder);
+            
+            // Extract notification content
+            Bundle extras = notification.extras;
+            if (extras == null) {
+                return;
+            }
+
+            CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
+            CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
+            CharSequence bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+                
+                // Extract ALL extras as JSON - this captures any custom data/deep links
+                // that apps include (from FCM payloads, custom fields, etc.)
+                org.json.JSONObject extrasJson = new org.json.JSONObject();
+                try {
+                    for (String key : extras.keySet()) {
+                        try {
+                            Object value = extras.get(key);
+                            if (value != null) {
+                                if (value instanceof String || value instanceof CharSequence) {
+                                    extrasJson.put(key, value.toString());
+                                } else if (value instanceof Number || value instanceof Boolean) {
+                                    extrasJson.put(key, value.toString());
+                                } else if (value instanceof Bundle) {
+                                    // Handle nested bundles (some apps use these)
+                                    Bundle nestedBundle = (Bundle) value;
+                                    org.json.JSONObject nestedJson = new org.json.JSONObject();
+                                    for (String nestedKey : nestedBundle.keySet()) {
+                                        Object nestedValue = nestedBundle.get(nestedKey);
+                                        if (nestedValue != null) {
+                                            nestedJson.put(nestedKey, nestedValue.toString());
+                                        }
+                                    }
+                                    extrasJson.put(key, nestedJson);
+                                } else {
+                                    // For other types, just use toString()
+                                    extrasJson.put(key, value.toString());
+                                }
+                            }
+                        } catch (Exception e) {
+                            // Log but continue with other keys
+                            Slog.w(TAG, "Failed to extract key: " + key, e);
+                        }
+                    }
+                    
+                    // Also add PendingIntent info if available
+                    if (notification.contentIntent != null) {
+                        try {
+                            // Extract detailed PendingIntent information
+                            android.app.PendingIntent pi = notification.contentIntent;
+                            extrasJson.put("_contentIntent", pi.toString());
+                            extrasJson.put("_creatorPackage", pi.getCreatorPackage());
+                            extrasJson.put("_creatorUid", pi.getCreatorUid());
+                            
+                            try {
+                                java.lang.reflect.Field targetField = 
+                                    android.app.PendingIntent.class.getDeclaredField("mTarget");
+                                targetField.setAccessible(true);
+                                android.content.IIntentSender target = 
+                                    (android.content.IIntentSender) targetField.get(pi);
+                                
+                                if (target != null) {
+                                    // Get the intent info from ActivityManager
+                                    android.app.IActivityManager am = 
+                                        android.app.ActivityManager.getService();
+                                    android.content.Intent intent = 
+                                        am.getIntentForIntentSender(target);
+                                    
+                                    if (intent != null) {
+                                        // Store the actual Intent details
+                                        extrasJson.put("_intentAction", intent.getAction());
+                                        extrasJson.put("_intentComponent", 
+                                            intent.getComponent() != null ? 
+                                            intent.getComponent().flattenToString() : "");
+                                        extrasJson.put("_intentData", 
+                                            intent.getDataString() != null ? 
+                                            intent.getDataString() : "");
+                                        extrasJson.put("_intentFlags", intent.getFlags());
+                                        extrasJson.put("_intentType", intent.getType());
+                                        extrasJson.put("_intentCategories", 
+                                            intent.getCategories() != null ? 
+                                            intent.getCategories().toString() : "");
+                                        extrasJson.put("_intentPackage", intent.getPackage());
+                                        
+                                        // Store intent extras (wrapped to handle custom Parcelables)
+                                        try {
+                                            Bundle intentExtras = intent.getExtras();
+                                            if (intentExtras != null) {
+                                                org.json.JSONObject intentExtrasJson =
+                                                    new org.json.JSONObject();
+                                                for (String key : intentExtras.keySet()) {
+                                                    try {
+                                                        Object value = intentExtras.get(key);
+                                                        if (value != null) {
+                                                            if (value instanceof Bundle) {
+                                                                // Unparcel and extract nested bundle
+                                                                Bundle nestedBundle = (Bundle) value;
+                                                                try {
+                                                                    // Force unparcelling
+                                                                    nestedBundle.size();
+                                                                    org.json.JSONObject nestedJson =
+                                                                        new org.json.JSONObject();
+                                                                    for (String nKey : nestedBundle.keySet()) {
+                                                                        Object nValue = nestedBundle.get(nKey);
+                                                                        if (nValue != null) {
+                                                                            nestedJson.put(nKey, nValue.toString());
+                                                                        }
+                                                                    }
+                                                                    intentExtrasJson.put(key, nestedJson);
+                                                                } catch (Exception e) {
+                                                                    // If unparcelling fails, store as string
+                                                                    intentExtrasJson.put(key, value.toString());
+                                                                }
+                                                            } else {
+                                                                intentExtrasJson.put(key, value.toString());
+                                                            }
+                                                        }
+                                                    } catch (Exception e) {
+                                                        // Skip keys with custom Parcelables we can't read
+                                                    }
+                                                }
+                                                extrasJson.put("_intentExtras", intentExtrasJson);
+                                            }
+                                        } catch (Exception e) {
+                                            // Intent extras extraction failed entirely, continue without them
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                // Reflection failed, but continue with basic info
+                                Slog.w(TAG, "Could not extract Intent details from PendingIntent", e);
+                            }
+                        } catch (Exception e) {
+                            Slog.w(TAG, "Failed to extract PendingIntent info", e);
+                        }
+                    }
+                } catch (Exception e) {
+                    Slog.w(TAG, "Failed to extract notification extras", e);
+                }
+                
+                // Pass the JSON string containing all custom data/deep links
+                String contentIntentStr = extrasJson.toString();
+
+                // Get the notification category (e.g., "transport" for media notifications)
+                String category = notification.category != null ? notification.category : "";
+
+            // Call the ingestNotification method
+            switchboardService.ingestNotification(
+                sbn.getPackageName(),
+                sbn.getId(),
+                sbn.getPostTime(),
+                title != null ? title.toString() : "",
+                text != null ? text.toString() : "",
+                bigText != null ? bigText.toString() : "",
+                contentIntentStr,
+                category
+            );
+
+            if (DBG) {
+                Slog.d(TAG, "Sent notification to switchboard: " + sbn.getPackageName()
+                    + "/" + sbn.getId());
+            }
+        } catch (android.os.RemoteException e) {
+            // Service communication failed, but don't crash notification system
+            Slog.w(TAG, "Failed to communicate with switchboard service", e);
+        } catch (Exception e) {
+            // Don't let ingestion failures affect normal notification flow
+            Slog.e(TAG, "Failed to send notification to switchboard", e);
         }
     }
 
