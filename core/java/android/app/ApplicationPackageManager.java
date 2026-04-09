@@ -831,6 +831,9 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public boolean hasSystemFeature(String name, int version) {
+        if (PixelPropsUtils.shouldSpoofFeature(name)) {
+            return true;
+        }
         // We check for system features in the following order:
         //    * Build time-defined system features (constant, very efficient)
         //    * SDK-defined system features (cached at process start, very efficient)
