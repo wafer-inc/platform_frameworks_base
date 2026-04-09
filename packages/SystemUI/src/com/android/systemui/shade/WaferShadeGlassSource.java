@@ -168,6 +168,9 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
             mSourceNode.discardDisplayList();
             mSourceNode = null;
         }
+        if (mWallpaperBitmap != null && !mWallpaperBitmap.isRecycled()) {
+            mWallpaperBitmap.recycle();
+        }
         mWallpaperBitmap = null;
     }
 
@@ -192,19 +195,33 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
     private void loadWallpaperOnBackground() {
         WallpaperManager wm = mWallpaperManager;
         if (wm == null) return;
-        Bitmap bitmap = null;
+        Bitmap owned = null;
         Drawable d = null;
         try {
             d = wm.getDrawable();
             if (d instanceof BitmapDrawable) {
-                bitmap = ((BitmapDrawable) d).getBitmap();
+                Bitmap shared = ((BitmapDrawable) d).getBitmap();
+                if (shared != null && !shared.isRecycled()) {
+                    // CRITICAL: WallpaperManager hands out a shared/cached Bitmap and
+                    // recycles it on its own schedule (theme/colors change, memory
+                    // pressure). Holding the shared reference is unsafe — we must take
+                    // a private copy that we own end-to-end. Without this, the source
+                    // RenderNode's recorded drawBitmap() either silently produces an
+                    // empty draw (causing the "flat black tint" bug) or throws
+                    // "trying to use a recycled bitmap" inside HWUI on the next frame.
+                    Bitmap.Config cfg = shared.getConfig() != null
+                            ? shared.getConfig() : Bitmap.Config.ARGB_8888;
+                    owned = shared.copy(cfg, false /* mutable */);
+                }
             } else if (d != null && d.getIntrinsicWidth() > 0 && d.getIntrinsicHeight() > 0) {
-                bitmap = Bitmap.createBitmap(
+                // Drawable wasn't a BitmapDrawable; rasterize it ourselves. The output
+                // bitmap is already privately owned by us — no copy needed.
+                owned = Bitmap.createBitmap(
                         d.getIntrinsicWidth(),
                         d.getIntrinsicHeight(),
                         Bitmap.Config.ARGB_8888);
-                android.graphics.Canvas c = new android.graphics.Canvas(bitmap);
-                d.setBounds(0, 0, bitmap.getWidth(), bitmap.getHeight());
+                android.graphics.Canvas c = new android.graphics.Canvas(owned);
+                d.setBounds(0, 0, owned.getWidth(), owned.getHeight());
                 d.draw(c);
             }
         } catch (SecurityException e) {
@@ -212,22 +229,34 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
         } catch (OutOfMemoryError e) {
             Log.w(TAG, "Out of memory loading wallpaper; falling back to flat glass", e);
         }
-        if (bitmap != null) {
-            Log.i(TAG, "wallpaper bitmap loaded: " + bitmap.getWidth() + "x" + bitmap.getHeight()
+        if (owned != null) {
+            Log.i(TAG, "wallpaper bitmap loaded (owned copy): "
+                    + owned.getWidth() + "x" + owned.getHeight()
                     + " drawableClass=" + (d != null ? d.getClass().getSimpleName() : "null"));
         } else {
             Log.w(TAG, "wallpaper load returned no bitmap; drawable="
                     + (d != null ? d.getClass().getSimpleName() : "null")
                     + " — falling back to flat glass");
         }
-        final Bitmap finalBitmap = bitmap;
+        final Bitmap finalBitmap = owned;
         mMainHandler.post(() -> onBitmapLoaded(finalBitmap));
     }
 
     @MainThread
     private void onBitmapLoaded(@Nullable Bitmap bitmap) {
-        if (!mAttached || bitmap == null) return;
+        if (!mAttached || bitmap == null) {
+            // Either we detached during the background load, or the load failed.
+            // Either way, recycle the orphaned copy so we don't leak it.
+            if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
+            return;
+        }
+        // Replacing an existing owned copy (e.g. wallpaper changed). Recycle the old
+        // one before dropping the reference — we own it, nobody else will.
+        Bitmap previous = mWallpaperBitmap;
         mWallpaperBitmap = bitmap;
+        if (previous != null && previous != bitmap && !previous.isRecycled()) {
+            previous.recycle();
+        }
         if (mSourceWidth <= 0 || mSourceHeight <= 0) {
             // Size not known yet — wait for onSizeChanged.
             return;
@@ -240,6 +269,16 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
         Bitmap bitmap = mWallpaperBitmap;
         if (bitmap == null || mSourceWidth <= 0 || mSourceHeight <= 0) return;
+        if (bitmap.isRecycled()) {
+            // Defence in depth: we should own this bitmap and never recycle it
+            // ourselves, but if anything ever slips through don't crash the draw
+            // thread — drop the reference and let the next reload re-fetch.
+            Log.w(TAG, "recordSource: wallpaper bitmap was recycled; clearing & "
+                    + "scheduling reload");
+            mWallpaperBitmap = null;
+            mBackgroundExecutor.execute(this::loadWallpaperOnBackground);
+            return;
+        }
         Log.i(TAG, "recordSource: window=" + mSourceWidth + "x" + mSourceHeight
                 + " bitmap=" + bitmap.getWidth() + "x" + bitmap.getHeight());
 
