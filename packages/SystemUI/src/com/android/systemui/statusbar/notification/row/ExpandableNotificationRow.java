@@ -3063,11 +3063,19 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
         // children container's actual bottom after layout. mChildrenContainer's
         // measured/laid-out bottom changes when children are added/removed,
         // expanded, or animated, and onLayout is the safest place to react.
+        //
+        // Cap at getActualHeight() — the row sets clipBounds to actualHeight via
+        // ExpandableView.updateClipping(), so anything painted past that y is
+        // clipped off. The children container's getBottom() can exceed
+        // actualHeight when it's laid out at the row's full FrameLayout height
+        // while the row's visible content is shorter (intrinsic height); without
+        // the cap, the plate's rounded bottom corners fall outside the clip and
+        // the bottom edge renders as a flat horizontal cut at y=actualHeight.
         if (mIsSummaryWithChildren && mBackgroundNormal != null) {
             int extended = 0;
             if (isGroupExpanded() && mChildrenContainer != null
                     && mChildrenContainer.getVisibility() == VISIBLE) {
-                extended = mChildrenContainer.getBottom();
+                extended = Math.min(mChildrenContainer.getBottom(), getActualHeight());
             }
             mBackgroundNormal.setWaferExtendedBottom(extended);
         }
@@ -3643,11 +3651,15 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             // draw with mIsGroupChild=true so we don't get stacked plates. The
             // children container's bottom is in this row's local coordinates because
             // the container is a direct child of the summary row.
+            //
+            // Cap at getActualHeight() — see the matching comment in onLayout(): the
+            // row's clipBounds clip at actualHeight, so painting past it produces a
+            // flat bottom cut instead of a rounded corner.
             if (mBackgroundNormal != null) {
                 int extended = 0;
                 if (isGroupExpanded() && mChildrenContainer != null
                         && mChildrenContainer.getVisibility() == VISIBLE) {
-                    extended = mChildrenContainer.getBottom();
+                    extended = Math.min(mChildrenContainer.getBottom(), getActualHeight());
                 }
                 mBackgroundNormal.setWaferExtendedBottom(extended);
             }
