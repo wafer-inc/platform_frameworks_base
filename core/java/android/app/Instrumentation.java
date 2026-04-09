@@ -48,6 +48,8 @@ import android.os.SystemProperties;
 import android.os.TestLooperManager;
 import android.os.UserHandle;
 import android.os.UserManager;
+
+import com.android.internal.util.wafer.PixelPropsUtils;
 import android.ravenwood.annotation.RavenwoodKeep;
 import android.ravenwood.annotation.RavenwoodKeepPartialClass;
 import android.ravenwood.annotation.RavenwoodReplace;
@@ -1356,6 +1358,7 @@ public class Instrumentation {
         Application app = getFactory(context.getPackageName())
                 .instantiateApplication(cl, className);
         app.attach(context);
+        PixelPropsUtils.setProps(context);
         return app;
     }
     
@@ -1373,6 +1376,7 @@ public class Instrumentation {
             ClassNotFoundException {
         Application app = (Application)clazz.newInstance();
         app.attach(context);
+        PixelPropsUtils.setProps(context);
         return app;
     }
 
