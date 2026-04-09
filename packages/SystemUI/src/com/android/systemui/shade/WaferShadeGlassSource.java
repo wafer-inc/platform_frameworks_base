@@ -69,7 +69,7 @@ import java.util.concurrent.Executors;
  * <p><b>Lifecycle:</b> tied to {@link NotificationShadeWindowView#onAttachedToWindow()}
  * and {@link NotificationShadeWindowView#onDetachedFromWindow()}.
  */
-public final class WaferShadeGlassSource {
+public final class WaferShadeGlassSource implements WaferGlassController.SourceRefresher {
 
     private static final String TAG = "WaferShadeGlassSource";
 
@@ -98,6 +98,26 @@ public final class WaferShadeGlassSource {
         mHost = host;
         mAppContext = host.getContext().getApplicationContext();
         mController = new WaferGlassController(mAppContext);
+        // Standalone RenderNodes can have their native display list dropped by HWUI;
+        // when that happens the controller asks us to re-record from the cached bitmap.
+        mController.setSourceRefresher(this);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Called from {@link WaferGlassController#ensureSourceReady} on the main thread
+     * when a draw notices the source RenderNode has lost its display list. Cheap if
+     * still-valid (single check), re-records from the cached wallpaper bitmap if not.
+     */
+    @MainThread
+    @Override
+    public void refreshSourceIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        if (mSourceNode == null || mWallpaperBitmap == null) return;
+        if (mSourceNode.hasDisplayList()) return;
+        Log.i(TAG, "refreshSourceIfNeeded: re-recording dropped source display list");
+        recordSource();
     }
 
     @MainThread
