@@ -15,8 +15,6 @@
  */
 package com.android.systemui.shade;
 
-import android.app.WallpaperColors;
-import android.app.WallpaperInfo;
 import android.app.WallpaperManager;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -55,11 +53,15 @@ import java.util.concurrent.Executors;
  * per-row backdrop blur sampled from the bitmap at their window position.
  *
  * <p><b>Live wallpapers:</b> {@link WallpaperManager#getDrawable()} returns the
- * <em>fallback static</em> for a live wallpaper, not the live frames. That would create
- * a stale-image effect that looks worse than the current "flat tint over Phase 02
- * scrim blur" path. So when {@link WallpaperManager#getWallpaperInfo()} reports a live
- * wallpaper, we leave the controller's source unset and the row delegates fall back
- * to their flat-glass painters automatically.
+ * <em>static thumbnail</em> for a true animated live wallpaper. That's slightly stale
+ * compared to the actual animation but it's still better than nothing — we'd rather
+ * show a real (if frozen) sample of the wallpaper than the flat tint fallback. We
+ * deliberately do NOT use {@code WallpaperManager.getWallpaperInfo() != null} as a
+ * live-wallpaper check because Pixel's static wallpaper is served via
+ * {@code com.android.systemui.wallpapers.ImageWallpaper} (a {@link android.service.wallpaper.WallpaperService})
+ * and would get incorrectly flagged. Instead we just attempt the load; if anything
+ * goes wrong (no permission, no bitmap, OOM, …) the controller's source stays unset
+ * and the row delegates use their flat-glass painters automatically.
  *
  * <p><b>Threading:</b> bitmap loads happen on a background executor; controller
  * publishing happens on the main thread.
@@ -90,7 +92,6 @@ public final class WaferShadeGlassSource {
     private int mSourceWidth;
     private int mSourceHeight;
     private boolean mAttached;
-    private boolean mLiveWallpaper;
     private final int[] mZeroLoc = new int[] {0, 0};
 
     public WaferShadeGlassSource(@NonNull View host) {
@@ -109,29 +110,26 @@ public final class WaferShadeGlassSource {
         WaferGlass.attachController(mHost, mController);
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            Log.i(TAG, "onAttachedToWindow: SDK<S, glass disabled");
             return;
         }
 
         mWallpaperManager = mAppContext.getSystemService(WallpaperManager.class);
-        if (mWallpaperManager == null) return;
-
-        WallpaperInfo info = mWallpaperManager.getWallpaperInfo();
-        mLiveWallpaper = info != null;
-        if (mLiveWallpaper) {
-            // Live wallpaper: getDrawable() returns the static fallback, which would
-            // give us a frozen image while the actual wallpaper animates behind.
-            // Better to leave the controller unset and let rows draw flat glass.
+        if (mWallpaperManager == null) {
+            Log.w(TAG, "onAttachedToWindow: no WallpaperManager service");
             return;
         }
 
         // Listen for wallpaper changes (theme switch, user rotates wallpaper, etc.)
         // and re-load the bitmap. The Handler dispatches the callback to the main
         // thread; the actual reload kicks off on the background executor.
-        mWallpaperListener = (colors, which) ->
-                mBackgroundExecutor.execute(this::loadWallpaperOnBackground);
+        mWallpaperListener = (colors, which) -> {
+            Log.i(TAG, "wallpaper colors changed (which=" + which + "); reloading");
+            mBackgroundExecutor.execute(this::loadWallpaperOnBackground);
+        };
         mWallpaperManager.addOnColorsChangedListener(mWallpaperListener, mMainHandler);
 
-        // Initial load.
+        Log.i(TAG, "onAttachedToWindow: kicking off initial wallpaper load");
         mBackgroundExecutor.execute(this::loadWallpaperOnBackground);
     }
 
@@ -155,7 +153,7 @@ public final class WaferShadeGlassSource {
 
     @MainThread
     public void onSizeChanged(int w, int h) {
-        if (!mAttached || mLiveWallpaper) return;
+        if (!mAttached) return;
         if (w == mSourceWidth && h == mSourceHeight) return;
         mSourceWidth = w;
         mSourceHeight = h;
@@ -175,8 +173,9 @@ public final class WaferShadeGlassSource {
         WallpaperManager wm = mWallpaperManager;
         if (wm == null) return;
         Bitmap bitmap = null;
+        Drawable d = null;
         try {
-            Drawable d = wm.getDrawable();
+            d = wm.getDrawable();
             if (d instanceof BitmapDrawable) {
                 bitmap = ((BitmapDrawable) d).getBitmap();
             } else if (d != null && d.getIntrinsicWidth() > 0 && d.getIntrinsicHeight() > 0) {
@@ -192,6 +191,14 @@ public final class WaferShadeGlassSource {
             Log.w(TAG, "No permission to load wallpaper bitmap; falling back to flat glass", e);
         } catch (OutOfMemoryError e) {
             Log.w(TAG, "Out of memory loading wallpaper; falling back to flat glass", e);
+        }
+        if (bitmap != null) {
+            Log.i(TAG, "wallpaper bitmap loaded: " + bitmap.getWidth() + "x" + bitmap.getHeight()
+                    + " drawableClass=" + (d != null ? d.getClass().getSimpleName() : "null"));
+        } else {
+            Log.w(TAG, "wallpaper load returned no bitmap; drawable="
+                    + (d != null ? d.getClass().getSimpleName() : "null")
+                    + " — falling back to flat glass");
         }
         final Bitmap finalBitmap = bitmap;
         mMainHandler.post(() -> onBitmapLoaded(finalBitmap));
@@ -213,6 +220,8 @@ public final class WaferShadeGlassSource {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
         Bitmap bitmap = mWallpaperBitmap;
         if (bitmap == null || mSourceWidth <= 0 || mSourceHeight <= 0) return;
+        Log.i(TAG, "recordSource: window=" + mSourceWidth + "x" + mSourceHeight
+                + " bitmap=" + bitmap.getWidth() + "x" + bitmap.getHeight());
 
         if (mSourceNode == null) {
             mSourceNode = new RenderNode("WaferShadeGlassSource");
