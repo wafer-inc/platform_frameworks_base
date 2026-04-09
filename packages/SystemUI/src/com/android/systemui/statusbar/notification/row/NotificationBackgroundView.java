@@ -79,12 +79,24 @@ public class NotificationBackgroundView extends View implements Dumpable,
     private boolean mDrawDismissButtonCutout = false;
 
     // Wafer glass surface — delegated to the shared wafer-glass library so the
-    // recipe (drop shadow + tint + top highlight gradient + hairline border) stays
-    // identical across SystemUI, the launcher, and any future consumers. The blur
-    // path of the delegate is unused in SystemUI: the shade backdrop is blurred at
-    // the window level by ScrimView's RenderEffect (Phase 02), so the delegate falls
-    // back to its flat-glass painters which are exactly what we want here.
+    // recipe (drop shadow + tint + hairline border, with optional real wallpaper
+    // blur from WaferShadeGlassSource) stays identical across SystemUI, the
+    // launcher, and any future consumers.
+    //
+    // We deliberately disable the per-row top-edge highlight gradient: the launcher
+    // uses it on individual cards over a clean wallpaper, but on a notification row
+    // sitting over a real-wallpaper-blur source it reads as a fake "shiny strip" on
+    // every notification, which the user explicitly called out as bad.
     @NonNull private final WaferGlassDelegate mWaferGlass;
+
+    // Wafer glass: when true, this row is a child of an expanded group, so we skip
+    // its individual glass plate. The summary row's plate (extended to cover the
+    // children's region) gives the whole group a single unified glass surface, with
+    // the existing notification dividers separating children inside it.
+    private boolean mIsGroupChild;
+    // Wafer glass: when > 0, the wafer plate's bottom extends to this Y so a
+    // summary row's plate covers the children stacked beneath it.
+    private int mWaferExtendedBottom;
 
     public NotificationBackgroundView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -100,10 +112,32 @@ public class NotificationBackgroundView extends View implements Dumpable,
         mWaferGlass = new WaferGlassDelegate(this,
                 WaferGlassTokens.blurRadiusCardPx(context),
                 WaferGlassTokens.cornerCardPx(context));
-        // Real per-element blur is moot for notifications: the wallpaper isn't
-        // recordable from inside the SystemUI window. Disable highlight-on-fallback
-        // toggles? No — the delegate's flat path already draws shadow + tint +
-        // highlight + border, which matches Phase 03 exactly.
+        // No top-edge highlight on notifications. See class comment.
+        mWaferGlass.setHighlightEnabled(false);
+    }
+
+    /**
+     * Wafer glass: marks this row as a child of an expanded group. Group children
+     * skip their individual glass plate so the parent group's plate (extended via
+     * {@link #setWaferExtendedBottom(int)}) appears as a single unified surface
+     * spanning the whole group, with the notification dividers separating children
+     * inside it.
+     */
+    public void setIsGroupChild(boolean isGroupChild) {
+        if (mIsGroupChild == isGroupChild) return;
+        mIsGroupChild = isGroupChild;
+        invalidate();
+    }
+
+    /**
+     * Wafer glass: extends the wafer plate's bottom to this Y so a summary row's
+     * plate covers the entire expanded group (header + children + dividers). Pass
+     * 0 to revert to the row's own height.
+     */
+    public void setWaferExtendedBottom(int extendedBottom) {
+        if (mWaferExtendedBottom == extendedBottom) return;
+        mWaferExtendedBottom = extendedBottom;
+        invalidate();
     }
 
     @Override
@@ -139,14 +173,17 @@ public class NotificationBackgroundView extends View implements Dumpable,
     @Override
     protected void onDraw(Canvas canvas) {
         if (mClipTopAmount + mClipBottomAmount < getActualHeight() || mExpandAnimationRunning) {
-            // Sync the delegate's local rect with the row's currently-visible region.
-            // The row's height shrinks during expand/collapse via mClipTopAmount /
-            // mClipBottomAmount; the wafer surface must follow so the shadow tail
-            // doesn't dangle below the visible card.
-            final int top = mClipTopAmount;
-            final int bottom = getActualHeight() - mClipBottomAmount;
-            mWaferGlass.setLocalRect(0, top, getWidth(), bottom);
-            mWaferGlass.drawGlassBackdrop(canvas);
+            // Wafer glass: skip the per-row plate on group children — the parent
+            // summary's plate covers them via its setWaferExtendedBottom region.
+            if (!mIsGroupChild) {
+                final int top = mClipTopAmount;
+                int bottom = getActualHeight() - mClipBottomAmount;
+                if (mWaferExtendedBottom > bottom) {
+                    bottom = mWaferExtendedBottom;
+                }
+                mWaferGlass.setLocalRect(0, top, getWidth(), bottom);
+                mWaferGlass.drawGlassBackdrop(canvas);
+            }
             canvas.save();
             if (!mExpandAnimationRunning) {
                 canvas.clipRect(0, mClipTopAmount, getWidth(),
