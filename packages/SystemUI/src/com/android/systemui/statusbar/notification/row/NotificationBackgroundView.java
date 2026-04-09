@@ -172,6 +172,20 @@ public class NotificationBackgroundView extends View implements Dumpable,
 
     @Override
     protected void onDraw(Canvas canvas) {
+        // Wafer glass: in stock AOSP, mBackground==null short-circuited onDraw to a
+        // no-op (see the legacy `draw(canvas, mBackground)` null check below). The
+        // backgroundDimmed sibling in status_bar_notification_row.xml is one such
+        // never-configured view — it never gets setCustomBackground/setActualHeight/
+        // setRadius called, so its host layout height is the full row (not the actual
+        // content height) and its corner radii default to the constructor's full-round
+        // value. With the wafer plate now unconditionally painted, that vestigial view
+        // would draw a fully-rounded oversized plate on top of backgroundNormal; the
+        // row's clipBounds clip the plate's bottom rounded portion off, leaving a
+        // flat-bottom card on top of the real one. Match the legacy null-guard so the
+        // dimmed sibling stays inert.
+        if (mBackground == null) {
+            return;
+        }
         if (mClipTopAmount + mClipBottomAmount < getActualHeight() || mExpandAnimationRunning) {
             // Wafer glass: skip the per-row plate on group children — the parent
             // summary's plate covers them via its setWaferExtendedBottom region.
@@ -461,11 +475,11 @@ public class NotificationBackgroundView extends View implements Dumpable,
         mCornerRadii[5] = bottomRoundness;
         mCornerRadii[6] = bottomRoundness;
         mCornerRadii[7] = bottomRoundness;
-        // The wafer-glass painters use a single corner radius. Match the legacy
-        // behaviour of using the larger of top/bottom — the small mismatch is
-        // hidden by the shadow's blur and the row's content draws over the
-        // surface anyway.
-        mWaferGlass.setCornerRadius(Math.max(topRoundness, bottomRoundness));
+        // Forward the per-edge radii through to the wafer glass plate so rows in
+        // the middle of a notification stack render with flat top/bottom corners
+        // and only the outermost rows show the rounded card edges. Collapsing to
+        // a single radius here makes every row look like an isolated pill.
+        mWaferGlass.setCornerRadii(topRoundness, bottomRoundness);
         updateBackgroundRadii();
     }
 
