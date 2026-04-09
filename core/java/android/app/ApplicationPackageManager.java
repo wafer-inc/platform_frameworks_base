@@ -828,6 +828,9 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public boolean hasSystemFeature(String name, int version) {
+        if (PixelPropsUtils.shouldSpoofFeature(name)) {
+            return true;
+        }
         return mHasSystemFeatureCache.query(new HasSystemFeatureQuery(name, version));
     }
 
