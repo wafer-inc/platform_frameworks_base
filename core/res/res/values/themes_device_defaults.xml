@@ -239,9 +239,6 @@ easier.
         <item name="colorForeground">@color/foreground_device_default_dark</item>
         <item name="colorForegroundInverse">@color/foreground_device_default_light</item>
 
-        <!-- Wafer reskin: opaque brand background so non-reskinned apps stay on-brand. -->
-        <item name="android:windowBackground">@color/wafer_black</item>
-
         <item name="materialColorBackground">@color/system_background_dark</item>
         <item name="materialColorControlActivated">@color/system_control_activated_dark</item>
         <item name="materialColorControlHighlight">@color/system_control_highlight_dark</item>
@@ -3089,9 +3086,6 @@ easier.
         <item name="colorForegroundInverse">@color/foreground_device_default_dark</item>
         <item name="colorPopupBackground">?attr/colorBackgroundFloating</item>
         <item name="panelColorBackground">?attr/colorBackgroundFloating</item>
-
-        <!-- Wafer reskin: brand is dark-only; Light theme maps to the same opaque Wafer background. -->
-        <item name="android:windowBackground">@color/wafer_black</item>
 
         <item name="materialColorBackground">@color/system_background_light</item>
         <item name="materialColorControlActivated">@color/system_control_activated_light</item>
