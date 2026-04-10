@@ -15,13 +15,13 @@
   -->
 
 <!--
-  Wafer reskin (Phase 04) — ripple over QS tile glass cards uses the brand
-  teal so press feedback reads against any wallpaper. Hover stays invisible
+  Wafer reskin (Phase 04) — ripple over QS tile glass cards uses white
+  so press feedback reads against any wallpaper. Hover stays invisible
   (the surrounding code does its own hover overlay).
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:color="@*android:color/wafer_teal" android:state_hovered="true"
+    <item android:color="@*android:color/wafer_white" android:state_hovered="true"
         android:state_pressed="true" />
     <item android:color="@color/transparent" android:state_hovered="true" />
-    <item android:color="@*android:color/wafer_teal" />
+    <item android:color="@*android:color/wafer_white" />
 </selector>
