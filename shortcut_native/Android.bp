@@ -1,0 +1,24 @@
+package {
+    default_applicable_licenses: ["frameworks_base_license"],
+}
+
+aidl_interface {
+    name: "shortcutservice_native_aidl",
+    unstable: true,
+    local_include_dir: "aidl",
+    srcs: [
+        "aidl/android/content/pm/IShortcutServiceNative.aidl",
+        "aidl/android/content/pm/ShortcutInfoNative.aidl",
+    ],
+    backend: {
+        java: {
+            enabled: true,
+        },
+        cpp: {
+            enabled: true,
+        },
+        rust: {
+            enabled: true,
+        },
+    },
+}
