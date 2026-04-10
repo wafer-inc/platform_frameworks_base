@@ -27,8 +27,6 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuff.Mode;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
-import android.graphics.RenderEffect;
-import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.os.Looper;
 import android.util.AttributeSet;
@@ -70,9 +68,7 @@ public class ScrimView extends View {
     @Nullable
     private Rect mDrawableBounds;
 
-    // Wafer reskin: backdrop blur of whatever sits behind this scrim view.
-    private final float mWaferBlurRadiusPx;
-    private boolean mWaferBlurApplied;
+    // Wafer reskin: fixed glass tint, ignoring wallpaper color extraction.
     private final int mWaferGlassTint;
 
     public ScrimView(Context context) {
@@ -97,9 +93,9 @@ public class ScrimView extends View {
         mColors = new ColorExtractor.GradientColors();
         mExecutorLooper = Looper.myLooper();
         mExecutor = Runnable::run;
-        // Wafer reskin: read the panel blur radius and glass tint from framework resources
-        // (Phase 00 wired these into core/res/res/values/wafer_glass.xml).
-        mWaferBlurRadiusPx = getResources().getDimension(R.dimen.wafer_blur_radius_panel);
+        // Wafer reskin: fixed glass tint from framework resources (Phase 00).
+        // The actual frosted backdrop blur is provided by NotificationShadeDepthController
+        // via SurfaceControl.setBackgroundBlurRadius(); no RenderEffect needed here.
         mWaferGlassTint = context.getColor(R.color.wafer_glass_tint_dark);
         executeOnExecutor(() -> {
             updateColorWithTint(false);
@@ -253,11 +249,10 @@ public class ScrimView extends View {
 
     private void updateColorWithTint(boolean animated) {
         if (mDrawable instanceof ScrimDrawable) {
-            // Wafer reskin: ignore wallpaper-extracted main color and the in-progress
-            // upstream notificationShadeBlur() placeholder. The view's RenderEffect blur
-            // (see setViewAlpha) provides the frosted backdrop, and we paint a fixed
-            // low-alpha glass tint on top so the surface looks the same regardless of
-            // wallpaper or theme color extraction.
+            // Wafer reskin: ignore wallpaper-extracted main color. We paint a fixed
+            // low-alpha glass tint so the scrim looks consistent regardless of wallpaper
+            // or theme color extraction. The frosted backdrop blur is handled by
+            // NotificationShadeDepthController (window-level SurfaceControl blur).
             ((ScrimDrawable) mDrawable).setColor(mWaferGlassTint, animated);
         } else {
             boolean hasAlpha = Color.alpha(mTintColor) != 0;
@@ -302,27 +297,8 @@ public class ScrimView extends View {
                 mViewAlpha = alpha;
 
                 mDrawable.setAlpha((int) (255 * alpha));
-                updateWaferBlur();
             }
         });
-    }
-
-    /**
-     * Wafer reskin: gate the backdrop blur on view alpha so we don't burn GPU on a
-     * fully-transparent scrim. The blur radius is fixed (read in the constructor from
-     * {@code R.dimen.wafer_blur_radius_panel}); only its on/off state changes.
-     */
-    private void updateWaferBlur() {
-        if (mViewAlpha > 0f) {
-            if (!mWaferBlurApplied) {
-                setRenderEffect(RenderEffect.createBlurEffect(
-                        mWaferBlurRadiusPx, mWaferBlurRadiusPx, Shader.TileMode.CLAMP));
-                mWaferBlurApplied = true;
-            }
-        } else if (mWaferBlurApplied) {
-            setRenderEffect(null);
-            mWaferBlurApplied = false;
-        }
     }
 
     public float getViewAlpha() {
