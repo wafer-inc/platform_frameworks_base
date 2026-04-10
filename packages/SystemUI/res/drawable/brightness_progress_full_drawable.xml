@@ -22,8 +22,8 @@
         android:height="@dimen/rounded_slider_height">
         <shape>
             <size android:height="@dimen/rounded_slider_height" />
-            <!-- Wafer reskin (Phase 04): active track is brand teal. -->
-            <solid android:color="@*android:color/wafer_teal" />
+            <!-- Wafer reskin (Phase 04): active track is white. -->
+            <solid android:color="@*android:color/wafer_white" />
             <corners android:radius="@dimen/rounded_slider_corner_radius"/>
         </shape>
     </item>
