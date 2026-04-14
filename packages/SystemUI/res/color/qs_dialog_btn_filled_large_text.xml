@@ -13,10 +13,10 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License.
   -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:androidprv="http://schemas.android.com/apk/prv/res/android">
+<!-- Wafer reskin — large filled button text color -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_enabled="false"
-        android:color="?androidprv:attr/materialColorOnPrimaryFixed"
+        android:color="@color/wafer_black"
         android:alpha="0.30"/>
-    <item android:color="?androidprv:attr/materialColorOnPrimaryFixed"/>
+    <item android:color="@color/wafer_black"/>
 </selector>

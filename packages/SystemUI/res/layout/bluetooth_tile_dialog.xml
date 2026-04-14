@@ -14,14 +14,22 @@
   ~ limitations under the License.
   -->
 
-<androidx.constraintlayout.widget.ConstraintLayout
+<!-- Wafer reskin — glass surface wraps the dialog content -->
+<com.wafer.glass.WaferGlassView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
-    android:id="@+id/root"
-    style="@style/Widget.SliceView.Panel"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    app:waferBlurRadius="@dimen/wafer_blur_radius_card"
+    app:waferCornerRadius="@dimen/wafer_corner_card"
+    app:waferShadowEnabled="true">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/root"
+        style="@style/Widget.SliceView.Panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
 
     <TextView
         android:id="@+id/bluetooth_tile_dialog_title"
@@ -63,7 +71,7 @@
         app:layout_constraintStart_toStartOf="@id/bluetooth_tile_dialog_progress_animation"
         app:layout_constraintTop_toTopOf="@id/bluetooth_tile_dialog_progress_animation"
         app:layout_constraintBottom_toBottomOf="@id/bluetooth_tile_dialog_progress_animation"
-        android:background="?androidprv:attr/colorSurfaceVariant" />
+        android:background="@color/wafer_glass_border" />
 
     <ProgressBar
         android:id="@+id/bluetooth_tile_dialog_progress_animation"
@@ -217,7 +225,7 @@
                 app:layout_constraintBottom_toTopOf="@+id/pair_new_device_button"
                 android:drawableStart="@drawable/ic_arrow_forward"
                 android:drawablePadding="26dp"
-                android:drawableTint="?android:attr/textColorPrimary"
+                android:drawableTint="@color/wafer_white"
                 android:text="@string/see_all_bluetooth_devices"
                 android:textSize="14sp"
                 android:textAppearance="@style/TextAppearance.BluetoothTileDialog"
@@ -241,7 +249,7 @@
                 app:layout_constraintTop_toBottomOf="@+id/see_all_button"
                 android:drawableStart="@drawable/ic_add"
                 android:drawablePadding="26dp"
-                android:drawableTint="?android:attr/textColorPrimary"
+                android:drawableTint="@color/wafer_white"
                 android:text="@string/pair_new_bluetooth_devices"
                 android:textSize="14sp"
                 android:textAppearance="@style/TextAppearance.BluetoothTileDialog"
@@ -303,4 +311,5 @@
                 app:layout_constraintVertical_bias="1" />
         </androidx.constraintlayout.widget.ConstraintLayout>
     </androidx.core.widget.NestedScrollView>
-</androidx.constraintlayout.widget.ConstraintLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</com.wafer.glass.WaferGlassView>

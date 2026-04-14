@@ -15,11 +15,12 @@
   ~ limitations under the License.
   -->
 
+<!-- Wafer reskin — busy BT item background -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
         <shape>
-            <solid android:color="?android:attr/colorControlHighlight" />
-            <corners android:radius="@dimen/settingslib_switch_bar_radius"/>
+            <solid android:color="@color/wafer_glass_button_bg" />
+            <corners android:radius="@dimen/wafer_corner_card"/>
         </shape>
     </item>
 </layer-list>

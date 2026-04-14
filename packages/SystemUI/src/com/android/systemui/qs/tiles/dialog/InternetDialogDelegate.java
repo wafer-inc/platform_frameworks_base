@@ -550,9 +550,10 @@ public class InternetDialogDelegate implements
             mMobileDataToggle.setVisibility(mCanConfigMobileData ? View.VISIBLE : View.INVISIBLE);
             mMobileToggleDivider.setVisibility(
                     mCanConfigMobileData ? View.VISIBLE : View.INVISIBLE);
+            // Wafer reskin — teal divider when connected, glass border when not
             int primaryColor = isNetworkConnected
-                    ? R.color.connected_network_primary_color
-                    : R.color.disconnected_network_primary_color;
+                    ? R.color.wafer_teal
+                    : R.color.wafer_glass_border;
             mMobileToggleDivider.setBackgroundColor(dialog.getContext().getColor(primaryColor));
             // Display the info for the non-DDS if it's actively being used
             int autoSwitchNonDdsSubId = internetContent.mActiveAutoSwitchNonDdsSubId;
@@ -604,7 +605,7 @@ public class InternetDialogDelegate implements
                 ImageView mSecondaryMobileSettingsIcon =
                         mDialogView.requireViewById(R.id.secondary_settings_icon);
                 mSecondaryMobileSettingsIcon.setColorFilter(
-                        dialog.getContext().getColor(R.color.connected_network_primary_color));
+                        dialog.getContext().getColor(R.color.wafer_teal));
 
                 // set secondary visual for default data sub
                 mMobileNetworkLayout.setBackground(mBackgroundOff);
@@ -612,7 +613,7 @@ public class InternetDialogDelegate implements
                 mMobileSummaryText.setTextAppearance(
                         R.style.TextAppearance_InternetDialog_Secondary);
                 mSignalIcon.setColorFilter(
-                        dialog.getContext().getColor(R.color.connected_network_secondary_color));
+                        dialog.getContext().getColor(R.color.wafer_gray));
             } else {
                 mMobileNetworkLayout.setBackground(
                         isNetworkConnected ? mBackgroundOn : mBackgroundOff);
@@ -676,7 +677,7 @@ public class InternetDialogDelegate implements
         mConnectedWifiIcon.setImageDrawable(
                 mInternetDialogController.getInternetWifiDrawable(mConnectedWifiEntry));
         mWifiSettingsIcon.setColorFilter(
-                mDialog.getContext().getColor(R.color.connected_network_primary_color));
+                mDialog.getContext().getColor(R.color.wafer_teal));
         if (mInternetDialogController.getConfiguratorQrCodeGeneratorIntentOrNull(
                 mConnectedWifiEntry) != null) {
             mShareWifiButton.setVisibility(View.VISIBLE);

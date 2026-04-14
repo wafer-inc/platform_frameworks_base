@@ -15,13 +15,13 @@
   limitations under the License.
   -->
 
+<!-- Wafer reskin — active/connected item background (solid white, dark ripple) -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
-    android:color="?android:attr/colorControlHighlight">
+    android:color="@color/wafer_black">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="?androidprv:attr/materialColorPrimaryContainer"/>
-            <corners android:radius="@dimen/settingslib_switch_bar_radius"/>
+            <solid android:color="@color/wafer_white"/>
+            <corners android:radius="@dimen/wafer_corner_card"/>
         </shape>
     </item>
 </ripple>

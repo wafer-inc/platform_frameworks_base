@@ -17,19 +17,20 @@
 <inset xmlns:android="http://schemas.android.com/apk/res/android"
        android:insetTop="@dimen/dialog_button_vertical_inset"
        android:insetBottom="@dimen/dialog_button_vertical_inset">
-    <ripple android:color="?android:attr/colorControlHighlight">
+    <!-- Wafer reskin — glass-styled outline button -->
+    <ripple android:color="@color/wafer_white">
         <item android:id="@android:id/mask">
             <shape android:shape="rectangle">
                 <solid android:color="@android:color/white"/>
-                <corners android:radius="?android:attr/buttonCornerRadius"/>
+                <corners android:radius="@dimen/wafer_corner_pill"/>
             </shape>
         </item>
         <item>
             <shape android:shape="rectangle">
-                <corners android:radius="?android:attr/buttonCornerRadius"/>
+                <corners android:radius="@dimen/wafer_corner_pill"/>
                 <solid android:color="@android:color/transparent"/>
                 <stroke android:color="@color/qs_dialog_btn_outline"
-                        android:width="1dp"
+                        android:width="@dimen/wafer_glass_border_width"
                 />
                 <padding android:left="@dimen/dialog_button_horizontal_padding"
                          android:top="@dimen/dialog_button_vertical_padding"

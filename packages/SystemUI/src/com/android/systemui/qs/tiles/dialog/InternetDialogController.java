@@ -482,7 +482,7 @@ public class InternetDialogController implements AccessPointController.AccessPoi
         if (drawable == null) {
             return null;
         }
-        drawable.setTint(mContext.getColor(R.color.connected_network_primary_color));
+        drawable.setTint(mContext.getColor(R.color.wafer_teal)); // Wafer reskin
         return drawable;
     }
 
@@ -527,7 +527,7 @@ public class InternetDialogController implements AccessPointController.AccessPoi
             int tintColor = Utils.getColorAttrDefaultColor(mContext,
                     android.R.attr.textColorTertiary);
             if (activeNetworkIsCellular() || isCarrierNetworkActive) {
-                tintColor = mContext.getColor(R.color.connected_network_primary_color);
+                tintColor = mContext.getColor(R.color.wafer_teal); // Wafer reskin
             }
             drawable.setTint(tintColor);
         } catch (Throwable e) {

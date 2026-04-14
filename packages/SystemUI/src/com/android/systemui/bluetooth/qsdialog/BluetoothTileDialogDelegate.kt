@@ -404,14 +404,12 @@ internal constructor(
                         uiEventLogger.log(BluetoothTileDialogUiEvent.DEVICE_CLICKED)
                     }
 
-                    // updating icon colors
+                    // Wafer reskin — glass icon/divider tint
                     val tintColor =
-                        com.android.settingslib.Utils.getColorAttr(
-                                context,
-                                if (item.isActive) InternalR.attr.materialColorOnPrimaryContainer
-                                else InternalR.attr.materialColorOnSurface,
-                            )
-                            .defaultColor
+                        context.getColor(
+                            if (item.isActive) R.color.wafer_black
+                            else R.color.wafer_white
+                        )
 
                     // update icons
                     iconView.apply {

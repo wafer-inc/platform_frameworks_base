@@ -15,12 +15,13 @@
   limitations under the License.
   -->
 
+<!-- Wafer reskin — glass ripple for inactive network items -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
-        android:color="?android:attr/colorControlHighlight">
+        android:color="@color/wafer_white">
     <item android:id="@android:id/mask">
         <shape android:shape="rectangle">
             <solid android:color="@android:color/white"/>
-            <corners android:radius="?android:attr/buttonCornerRadius"/>
+            <corners android:radius="@dimen/wafer_corner_card"/>
         </shape>
     </item>
 </ripple>

@@ -14,10 +14,10 @@
   ~ limitations under the License.
   -->
 
-<selector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:androidprv="http://schemas.android.com/apk/prv/res/android">
+<!-- Wafer reskin — outline button stroke color -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_enabled="false"
-        android:color="?androidprv:attr/materialColorPrimary"
+        android:color="@color/wafer_glass_border"
         android:alpha="0.30"/>
-    <item android:color="?androidprv:attr/materialColorPrimary"/>
+    <item android:color="@color/wafer_glass_border"/>
 </selector>

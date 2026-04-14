@@ -15,14 +15,22 @@
   ~ limitations under the License.
   -->
 
-<LinearLayout
+<!-- Wafer reskin — glass surface wraps the dialog content -->
+<com.wafer.glass.WaferGlassView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
-    android:id="@+id/internet_connectivity_dialog"
     android:layout_width="@dimen/large_dialog_width"
     android:layout_height="wrap_content"
-    android:orientation="vertical">
+    app:waferBlurRadius="@dimen/wafer_blur_radius_card"
+    app:waferCornerRadius="@dimen/wafer_corner_card"
+    app:waferShadowEnabled="true">
+
+    <LinearLayout
+        android:id="@+id/internet_connectivity_dialog"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -65,7 +73,7 @@
             android:layout_width="match_parent"
             android:layout_height="4dp"
             android:layout_gravity="center_vertical|center_horizontal"
-            android:background="?androidprv:attr/colorSurfaceVariant"/>
+            android:background="@color/wafer_glass_border"/>
 
         <ProgressBar
             android:id="@+id/wifi_searching_progress"
@@ -107,7 +115,7 @@
                             android:layout_gravity="center"
                             android:autoMirrored="true"
                             android:src="@drawable/stat_sys_ethernet_fully"
-                            android:tint="@color/connected_network_primary_color"/>
+                            android:tint="@color/wafer_teal"/>
                     </FrameLayout>
 
                     <LinearLayout
@@ -454,4 +462,5 @@
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
-</LinearLayout>
+    </LinearLayout>
+</com.wafer.glass.WaferGlassView>
