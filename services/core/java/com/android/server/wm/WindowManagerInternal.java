@@ -1054,6 +1054,15 @@ public abstract class WindowManagerInternal {
     public abstract SurfaceControl getA11yOverlayLayer(int displayId);
 
     /**
+     * Wafer: returns the SurfaceControl of the topmost non-SystemUI Task on the
+     * given display, or {@code null} if no such Task is visible. Caller owns the
+     * returned SurfaceControl copy and must release it. Used by the backdrop
+     * capture service to mirror / snapshot the app content below the shade.
+     */
+    @Nullable
+    public abstract SurfaceControl getTopTaskSurfaceControl(int displayId);
+
+    /**
      * Captures the entire display specified by the displayId using the args provided. If the args
      * are null or if the sourceCrop is invalid or null, the entire display bounds will be captured.
      */

@@ -180,6 +180,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT"/>
+    <!-- Wafer: live backdrop capture for per-row glass blur. -->
+    <uses-permission android:name="com.wafer.permission.CAPTURE_BACKDROP"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECORD_SENSITIVE_CONTENT"/>
 

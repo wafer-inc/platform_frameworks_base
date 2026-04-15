@@ -18,21 +18,25 @@ package com.android.systemui.shade;
 import android.app.WallpaperManager;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.ColorSpace;
 import android.graphics.Paint;
 import android.graphics.RecordingCanvas;
 import android.graphics.RenderNode;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.hardware.HardwareBuffer;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Display;
 import android.view.View;
 
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.wafer.backdrop.WaferBackdropManager;
 import com.wafer.glass.WaferGlass;
 import com.wafer.glass.WaferGlassController;
 
@@ -94,6 +98,14 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
     private boolean mAttached;
     private final int[] mZeroLoc = new int[] {0, 0};
 
+    // Wafer backdrop live-source path. When a frame arrives we record it into
+    // mLiveNode and publish it as the glass source. On onBackdropUnavailable
+    // we drop back to the wallpaper path (by re-publishing mSourceNode).
+    @Nullable private WaferBackdropManager mBackdropManager;
+    @Nullable private WaferBackdropManager.Session mBackdropSession;
+    @Nullable private RenderNode mLiveNode;
+    private boolean mLiveSourceActive;
+
     public WaferShadeGlassSource(@NonNull View host) {
         mHost = host;
         mAppContext = host.getContext().getApplicationContext();
@@ -151,6 +163,25 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
 
         Log.i(TAG, "onAttachedToWindow: kicking off initial wallpaper load");
         mBackgroundExecutor.execute(this::loadWallpaperOnBackground);
+
+        // Open a backdrop capture session. Frames replace the wallpaper source
+        // while delivery succeeds; on unavailable we fall back to wallpaper.
+        mBackdropManager = mAppContext.getSystemService(WaferBackdropManager.class);
+        if (mBackdropManager != null) {
+            final Display display = mHost.getDisplay();
+            final int displayId = display != null ? display.getDisplayId() : 0;
+            try {
+                mBackdropSession = mBackdropManager.startSession(displayId, mMainHandler,
+                        mBackdropListener);
+                Log.i(TAG, "onAttachedToWindow: backdrop session started on display "
+                        + displayId);
+            } catch (Throwable t) {
+                Log.w(TAG, "failed to start backdrop session; staying on wallpaper path", t);
+                mBackdropSession = null;
+            }
+        } else {
+            Log.w(TAG, "WaferBackdropManager unavailable; staying on wallpaper path");
+        }
     }
 
     @MainThread
@@ -162,6 +193,16 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
         }
         mWallpaperListener = null;
         mWallpaperManager = null;
+        if (mBackdropSession != null) {
+            try { mBackdropSession.close(); } catch (Throwable ignored) {}
+            mBackdropSession = null;
+        }
+        mBackdropManager = null;
+        mLiveSourceActive = false;
+        if (mLiveNode != null) {
+            mLiveNode.discardDisplayList();
+            mLiveNode = null;
+        }
         WaferGlass.detachController(mHost, mController);
         mController.release();
         if (mSourceNode != null) {
@@ -309,6 +350,12 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
             mSourceNode.endRecording();
         }
 
+        if (mLiveSourceActive) {
+            // Live backdrop is driving the controller — don't overwrite it with
+            // the wallpaper source. We still keep mSourceNode recorded so that
+            // onBackdropUnavailable has something to fall back to immediately.
+            return;
+        }
         mController.setSource(mSourceNode, mSourceWidth, mSourceHeight);
         // The shade window is full-screen and the wallpaper is anchored to the window
         // origin, so the source location in window is (0, 0). This matches the math
@@ -322,5 +369,85 @@ public final class WaferShadeGlassSource implements WaferGlassController.SourceR
                 + " bitmap=" + bitmap.getWidth() + "x" + bitmap.getHeight()
                 + " window=" + mSourceWidth + "x" + mSourceHeight
                 + " scale=" + scale + " dx=" + dx + " dy=" + dy);
+    }
+
+    private final WaferBackdropManager.Listener mBackdropListener =
+            new WaferBackdropManager.Listener() {
+        @Override
+        public void onBackdropFrame(@NonNull HardwareBuffer buffer, long frameSeq,
+                                    long presentTimeNs, int srcWidthPx, int srcHeightPx) {
+            if (!mAttached) return;
+            publishLiveFrame(buffer, srcWidthPx, srcHeightPx);
+        }
+
+        @Override
+        public void onBackdropUnavailable(int reason) {
+            if (!mAttached) return;
+            Log.i(TAG, "backdrop unavailable reason=" + reason
+                    + "; falling back to wallpaper");
+            mLiveSourceActive = false;
+            // Re-publish the wallpaper source if we have one cached.
+            if (mSourceNode != null && mSourceWidth > 0 && mSourceHeight > 0) {
+                mController.setSource(mSourceNode, mSourceWidth, mSourceHeight);
+                mController.setSourceLocationInWindow(mZeroLoc);
+                mController.invalidateSource();
+            }
+        }
+    };
+
+    /**
+     * Wraps the incoming backdrop {@link HardwareBuffer} in a reused {@link RenderNode}
+     * and publishes it as the glass source. This is the Phase 1 live path; Phase 3
+     * will swap in a half-res downsampled buffer with the same shape.
+     */
+    @MainThread
+    private void publishLiveFrame(@NonNull HardwareBuffer buffer, int srcW, int srcH) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        if (srcW <= 0 || srcH <= 0) return;
+
+        // wrapHardwareBuffer is zero-copy; the returned Bitmap shares pixels with
+        // the buffer. The service guarantees it's valid until the next frame.
+        final Bitmap hwBitmap;
+        try {
+            hwBitmap = Bitmap.wrapHardwareBuffer(buffer,
+                    ColorSpace.get(ColorSpace.Named.SRGB));
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "wrapHardwareBuffer failed", e);
+            return;
+        }
+        if (hwBitmap == null) return;
+
+        if (mLiveNode == null) {
+            mLiveNode = new RenderNode("WaferShadeGlassLive");
+        }
+        // Size the RenderNode to the shade window — existing per-row sampling
+        // math uses window coordinates against the source rect, so keeping it at
+        // window size means rows don't need to change. Scale the hw bitmap into
+        // that rect (centre-crop to match the wallpaper path's feel).
+        final int winW = mSourceWidth > 0 ? mSourceWidth : srcW;
+        final int winH = mSourceHeight > 0 ? mSourceHeight : srcH;
+        mLiveNode.setPosition(0, 0, winW, winH);
+
+        final float scale = Math.max((float) winW / srcW, (float) winH / srcH);
+        final float drawW = srcW * scale;
+        final float drawH = srcH * scale;
+        final float dx = (winW - drawW) * 0.5f;
+        final float dy = (winH - drawH) * 0.5f;
+
+        final RecordingCanvas rc = mLiveNode.beginRecording();
+        try {
+            rc.save();
+            rc.translate(dx, dy);
+            rc.scale(scale, scale);
+            rc.drawBitmap(hwBitmap, 0f, 0f, null);
+            rc.restore();
+        } finally {
+            mLiveNode.endRecording();
+        }
+
+        mLiveSourceActive = true;
+        mController.setSource(mLiveNode, winW, winH);
+        mController.setSourceLocationInWindow(mZeroLoc);
+        mController.invalidateSource();
     }
 }

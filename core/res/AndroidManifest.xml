@@ -6451,6 +6451,12 @@
     <permission android:name="android.permission.CONTROL_DISPLAY_BRIGHTNESS"
         android:protectionLevel="signature" />
 
+    <!-- @hide Allows an application to receive live HardwareBuffer frames from the
+         Wafer backdrop capture service. signature|privileged because the buffer may
+         contain the screen content of other apps (minus secure layers). -->
+    <permission android:name="com.wafer.permission.CAPTURE_BACKDROP"
+        android:protectionLevel="signature|privileged" />
+
     <!-- Allows an application to override the display mode requests
          so the app requested mode will be selected and user settings and display
          policies will be ignored.

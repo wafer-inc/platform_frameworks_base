@@ -8718,6 +8718,23 @@ public class WindowManagerService extends IWindowManager.Stub
         }
 
         @Override
+        @Nullable
+        public SurfaceControl getTopTaskSurfaceControl(int displayId) {
+            // Resolve the top Task's SurfaceControl under mGlobalLock, but return
+            // a standalone copy so the caller can capture without holding the
+            // lock across the SurfaceFlinger round-trip.
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContent(displayId);
+                if (dc == null) return null;
+                final Task task = dc.getTopRootTask();
+                if (task == null) return null;
+                final SurfaceControl sc = task.getSurfaceControl();
+                if (sc == null || !sc.isValid()) return null;
+                return new SurfaceControl(sc, "WaferBackdrop.getTopTaskSurfaceControl");
+            }
+        }
+
+        @Override
         public void captureDisplay(int displayId, @Nullable ScreenCapture.CaptureArgs captureArgs,
                                    ScreenCapture.ScreenCaptureListener listener) {
             WindowManagerService.this.captureDisplay(displayId, captureArgs, listener);
