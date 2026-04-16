@@ -1063,25 +1063,37 @@ public abstract class WindowManagerInternal {
     public abstract SurfaceControl getTopTaskSurfaceControl(int displayId);
 
     /**
-     * Wafer: returns the {@link android.window.WindowContainerToken} (as its
-     * {@link IBinder}) of the topmost non-SystemUI task on the given display,
-     * or {@code null} if no such task is visible. Used by the backdrop capture
-     * service to build a {@link android.view.ContentRecordingSession} that
-     * routes the task's composition into an offscreen VirtualDisplay.
+     * Wafer: returns the root SurfaceControl of the given display (including
+     * virtual displays). Caller owns the returned copy and must release it.
+     * Used by the backdrop capture service to reparent a mirror layer into
+     * an offscreen VirtualDisplay's layer tree.
      */
     @Nullable
-    public abstract IBinder getTopTaskWindowContainerToken(int displayId);
+    public abstract SurfaceControl getDisplaySurfaceControl(int displayId);
 
     /**
-     * Wafer: install an already-built {@link android.view.ContentRecordingSession}
-     * directly on the WindowManager's ContentRecordingController, bypassing the
-     * MediaProjection launch-cookie lookup that the IPC surface does. Used by
-     * the backdrop capture service which knows the task token up front via
-     * {@link #getTopTaskWindowContainerToken}. Returns {@code true} if the session
-     * was accepted.
+     * Wafer: returns a mirror SurfaceControl of the top visible wallpaper on
+     * the given display, or {@code null} if no wallpaper is visible. Mirrors
+     * at the WallpaperWindowToken level to preserve scale/translation applied
+     * to the wallpaper surface. Used by the backdrop capture service as a
+     * fallback when the foreground task can't be mirrored (no task, etc.) so
+     * clients always receive a live backdrop.
      */
-    public abstract boolean setBackdropContentRecordingSession(
-            @Nullable android.view.ContentRecordingSession session);
+    @Nullable
+    public abstract SurfaceControl mirrorWallpaperSurface(int displayId);
+
+    /**
+     * Wafer: detaches the windowing and overlay layers of the given (virtual)
+     * display so only mirrored content we reparent under the display root is
+     * composited into the display's output surface. This is the same
+     * "clear the canvas" step that {@code ContentRecorder} performs for
+     * MediaProjection; without it, SurfaceFlinger composites the VD's own
+     * (empty) window/overlay tree on top of anything we mirror in, and no
+     * frames flow through to the output surface.
+     *
+     * <p>Idempotent. Returns {@code true} if the display was found.
+     */
+    public abstract boolean detachVirtualDisplayContentLayers(int virtualDisplayId);
 
     /**
      * Captures the entire display specified by the displayId using the args provided. If the args

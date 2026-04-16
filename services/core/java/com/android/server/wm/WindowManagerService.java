@@ -8736,34 +8736,42 @@ public class WindowManagerService extends IWindowManager.Stub
 
         @Override
         @Nullable
-        public IBinder getTopTaskWindowContainerToken(int displayId) {
+        public SurfaceControl getDisplaySurfaceControl(int displayId) {
             synchronized (mGlobalLock) {
-                final DisplayContent dc = mRoot.getDisplayContent(displayId);
+                final DisplayContent dc = mRoot.getDisplayContentOrCreate(displayId);
                 if (dc == null) return null;
-                final Task task = dc.getTopRootTask();
-                if (task == null || task.mRemoteToken == null) return null;
-                return task.mRemoteToken.toWindowContainerToken().asBinder();
+                final SurfaceControl sc = dc.getSurfaceControl();
+                if (sc == null || !sc.isValid()) return null;
+                return new SurfaceControl(sc, "WaferBackdrop.getDisplaySurfaceControl");
             }
         }
 
         @Override
-        public boolean setBackdropContentRecordingSession(
-                @Nullable ContentRecordingSession session) {
+        @Nullable
+        public SurfaceControl mirrorWallpaperSurface(int displayId) {
             synchronized (mGlobalLock) {
-                if (session != null) {
-                    // Verify the target VirtualDisplay is reachable before
-                    // committing the session. ContentRecordingController's
-                    // setContentRecordingSessionLocked silently no-ops when
-                    // the DisplayContent doesn't exist, so report that up to
-                    // the caller here instead of losing the failure.
-                    final DisplayContent dc = mRoot.getDisplayContentOrCreate(
-                            session.getVirtualDisplayId());
-                    if (dc == null) {
-                        return false;
+                final DisplayContent dc = mRoot.getDisplayContent(displayId);
+                if (dc == null) return null;
+                return dc.mWallpaperController.mirrorWallpaperSurface();
+            }
+        }
+
+        @Override
+        public boolean detachVirtualDisplayContentLayers(int virtualDisplayId) {
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContentOrCreate(virtualDisplayId);
+                if (dc == null) return false;
+                final SurfaceControl windowing = dc.getWindowingLayer();
+                final SurfaceControl overlay = dc.getOverlayLayer();
+                try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
+                    if (windowing != null && windowing.isValid()) {
+                        t.reparent(windowing, null);
                     }
+                    if (overlay != null && overlay.isValid()) {
+                        t.reparent(overlay, null);
+                    }
+                    t.apply();
                 }
-                mContentRecordingController.setContentRecordingSessionLocked(session,
-                        WindowManagerService.this);
                 return true;
             }
         }
