@@ -12,6 +12,9 @@ package com.wafer.backdrop;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Point;
+import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.hardware.HardwareBuffer;
 import android.os.Binder;
 import android.os.Handler;
@@ -312,9 +315,15 @@ public final class WaferBackdropCaptureService extends SystemService {
                 deliverUnavailable(s, WaferBackdropManager.REASON_NO_TARGET);
                 return;
             }
+            final Rect crop = getDisplayBounds(s.displayId);
+            if (crop == null) {
+                deliverUnavailable(s, WaferBackdropManager.REASON_CAPTURE_FAILED);
+                return;
+            }
             ScreenshotHardwareBuffer shb = null;
             try {
                 final LayerCaptureArgs args = new LayerCaptureArgs.Builder(taskSc)
+                        .setSourceCrop(crop)
                         .setChildrenOnly(true)
                         .setFrameScale(1.0f)
                         .build();
@@ -367,6 +376,23 @@ public final class WaferBackdropCaptureService extends SystemService {
                 stopSessionInternal(s.token);
             }
         }
+    }
+
+    @Nullable
+    private Rect getDisplayBounds(int displayId) {
+        final DisplayManager dm = mContext.getSystemService(DisplayManager.class);
+        if (dm == null) {
+            Slog.w(TAG, "DisplayManager unavailable; cannot resolve display bounds");
+            return null;
+        }
+        final android.view.Display display = dm.getDisplay(displayId);
+        if (display == null) {
+            Slog.w(TAG, "No display found for displayId=" + displayId);
+            return null;
+        }
+        final Point size = new Point();
+        display.getRealSize(size);
+        return new Rect(0, 0, size.x, size.y);
     }
 
     // ---------------- Shell + dumpsys ----------------
@@ -427,9 +453,16 @@ public final class WaferBackdropCaptureService extends SystemService {
                 pw.println("no top task on display " + displayId);
                 return 1;
             }
+            final Rect crop = getDisplayBounds(displayId);
+            if (crop == null) {
+                pw.println("could not resolve display bounds for display " + displayId);
+                taskSc.release();
+                return 1;
+            }
             ScreenshotHardwareBuffer shb;
             try {
                 shb = ScreenCapture.captureLayers(new LayerCaptureArgs.Builder(taskSc)
+                        .setSourceCrop(crop)
                         .setChildrenOnly(true)
                         .setFrameScale(1.0f)
                         .build());
