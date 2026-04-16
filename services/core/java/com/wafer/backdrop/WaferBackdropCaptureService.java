@@ -315,7 +315,7 @@ public final class WaferBackdropCaptureService extends SystemService {
             ScreenshotHardwareBuffer shb = null;
             try {
                 final LayerCaptureArgs args = new LayerCaptureArgs.Builder(taskSc)
-                        .setChildrenOnly(false)
+                        .setChildrenOnly(true)
                         .setFrameScale(1.0f)
                         .build();
                 shb = ScreenCapture.captureLayers(args);
@@ -327,6 +327,7 @@ public final class WaferBackdropCaptureService extends SystemService {
             }
 
             if (shb == null || shb.getHardwareBuffer() == null) {
+                Slog.w(TAG, "captureLayers returned null for displayId=" + s.displayId);
                 deliverUnavailable(s, WaferBackdropManager.REASON_CAPTURE_FAILED);
                 return;
             }
@@ -429,7 +430,7 @@ public final class WaferBackdropCaptureService extends SystemService {
             ScreenshotHardwareBuffer shb;
             try {
                 shb = ScreenCapture.captureLayers(new LayerCaptureArgs.Builder(taskSc)
-                        .setChildrenOnly(false)
+                        .setChildrenOnly(true)
                         .setFrameScale(1.0f)
                         .build());
             } finally {
