@@ -10,12 +10,18 @@
 package com.wafer.backdrop;
 
 import android.annotation.Nullable;
+import android.app.ActivityManager.RunningTaskInfo;
+import android.app.TaskStackListener;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.Rect;
-import android.hardware.display.DisplayManager;
 import android.hardware.HardwareBuffer;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -23,9 +29,8 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.ShellCommand;
-import android.os.SystemClock;
 import android.util.Slog;
-import android.view.Choreographer;
+import android.view.Surface;
 import android.view.SurfaceControl;
 import android.window.ScreenCapture;
 import android.window.ScreenCapture.LayerCaptureArgs;
@@ -33,6 +38,7 @@ import android.window.ScreenCapture.ScreenshotHardwareBuffer;
 
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
+import com.android.server.wm.ActivityTaskManagerInternal;
 import com.android.server.wm.WindowManagerInternal;
 
 import java.io.BufferedOutputStream;
@@ -44,16 +50,19 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Phase 0 + Phase 1 implementation of the Wafer backdrop capture service.
+ * Phase 2 implementation of the Wafer backdrop capture service.
  *
- * <p>Publishes the {@code wafer_backdrop} system service. Phase 1 uses the
- * synchronous {@link ScreenCapture#captureLayers(LayerCaptureArgs)} path against
- * the topmost Task on the target display, driven by a Choreographer on a
- * dedicated {@link HandlerThread} and rate-limited to ~10 fps. Frames are
- * delivered oneway via {@link IWaferBackdropCallback#onBufferAvailable}.
+ * <p>The service mirrors the foreground task's {@link SurfaceControl} using
+ * {@link SurfaceControl#mirrorSurface}, reparents it under an offscreen
+ * {@link VirtualDisplay} whose output surface is an {@link ImageReader}, and
+ * delivers the composited {@link HardwareBuffer} to clients on every vsync.
+ * No CPU readback, no rate limit — capture runs at the display's native
+ * refresh rate.
  *
- * <p>Phase 2 will replace the body of {@link CaptureThread#runFrameLocked} with
- * a {@link SurfaceControl#mirrorSurface} + {@code BLASTBufferQueue} path.
+ * <p>When the top task isn't a suitable mirror target (no task, secure/DRM
+ * layer black-filled by SF, etc.) the service falls back to mirroring the
+ * wallpaper so clients always receive frames and never need their own
+ * wallpaper-loading path.
  *
  * @hide
  */
@@ -64,19 +73,24 @@ public final class WaferBackdropCaptureService extends SystemService {
     private static final String PERMISSION_CAPTURE_BACKDROP =
             "com.wafer.permission.CAPTURE_BACKDROP";
 
-    /** Target frame interval for the Phase 1 slow path (~10 fps). */
-    private static final long PHASE1_MIN_FRAME_INTERVAL_NS = 90_000_000L; // 90 ms
+    /** Max in-flight buffers in the ImageReader: 1 compositing + 1 delivered + 1 previous. */
+    private static final int IMAGE_READER_MAX_IMAGES = 3;
 
     private final Context mContext;
     private final BinderService mBinder = new BinderService();
 
-    /** Guards {@link #mSessions} + {@link #mCaptureThread}. */
+    /** Guards {@link #mSessions}, {@link #mCaptureThread}, {@link #mMirrorPipeline},
+     *  {@link #mTaskStackListener}. */
     private final Object mLock = new Object();
 
     private final Map<IBinder, Session> mSessions = new HashMap<>();
 
     @Nullable private CaptureThread mCaptureThread;
+    @Nullable private MirrorPipeline mMirrorPipeline;
+    @Nullable private TaskStackListenerImpl mTaskStackListener;
+
     @Nullable private WindowManagerInternal mWmInternal;
+    @Nullable private ActivityTaskManagerInternal mAtmInternal;
 
     public WaferBackdropCaptureService(Context context) {
         super(context);
@@ -97,6 +111,10 @@ public final class WaferBackdropCaptureService extends SystemService {
             if (mWmInternal == null) {
                 Slog.e(TAG, "WindowManagerInternal not available");
             }
+            mAtmInternal = LocalServices.getService(ActivityTaskManagerInternal.class);
+            if (mAtmInternal == null) {
+                Slog.e(TAG, "ActivityTaskManagerInternal not available");
+            }
         }
     }
 
@@ -115,14 +133,14 @@ public final class WaferBackdropCaptureService extends SystemService {
             try {
                 cb.asBinder().linkToDeath(session, 0);
             } catch (RemoteException e) {
-                // Callback binder already dead — nothing to capture for.
                 Slog.w(TAG, "callback binder already dead at startSession", e);
                 return token;
             }
             synchronized (mLock) {
                 mSessions.put(token, session);
                 ensureCaptureThreadLocked();
-                mCaptureThread.scheduleFrame();
+                ensureMirrorPipelineLocked(displayId);
+                registerTaskStackListenerLocked();
             }
             Slog.i(TAG, "startSession: displayId=" + displayId + " token=" + token);
             return token;
@@ -148,11 +166,10 @@ public final class WaferBackdropCaptureService extends SystemService {
             enforcePermission("resumeSession");
             synchronized (mLock) {
                 final Session s = mSessions.get(token);
-                if (s != null) {
-                    s.paused = false;
-                    if (mCaptureThread != null) mCaptureThread.scheduleFrame();
-                }
+                if (s != null) s.paused = false;
             }
+            // No explicit frame scheduling: the ImageReader callback fires
+            // continuously while the mirror pipeline is active.
         }
 
         @Override
@@ -189,11 +206,22 @@ public final class WaferBackdropCaptureService extends SystemService {
         } catch (Throwable ignored) {
         }
         removed.close();
+
+        MirrorPipeline pipelineToDestroy = null;
+        CaptureThread threadToQuit = null;
         synchronized (mLock) {
-            if (mSessions.isEmpty() && mCaptureThread != null) {
-                mCaptureThread.quit();
+            if (mSessions.isEmpty()) {
+                unregisterTaskStackListenerLocked();
+                pipelineToDestroy = mMirrorPipeline;
+                mMirrorPipeline = null;
+                threadToQuit = mCaptureThread;
                 mCaptureThread = null;
             }
+        }
+        if (pipelineToDestroy != null && threadToQuit != null) {
+            final MirrorPipeline p = pipelineToDestroy;
+            threadToQuit.post(p::destroy);
+            threadToQuit.quit();
         }
         Slog.i(TAG, "stopSession: token=" + token);
     }
@@ -206,8 +234,6 @@ public final class WaferBackdropCaptureService extends SystemService {
         final IWaferBackdropCallback callback;
         volatile boolean paused;
         volatile long frameSeq;
-        // Held until the next frame is delivered, per the "valid until next callback" contract.
-        @Nullable HardwareBuffer lastDeliveredBuffer;
 
         Session(IBinder token, int displayId, IWaferBackdropCallback cb) {
             this.token = token;
@@ -222,10 +248,9 @@ public final class WaferBackdropCaptureService extends SystemService {
         }
 
         void close() {
-            if (lastDeliveredBuffer != null) {
-                try { lastDeliveredBuffer.close(); } catch (Throwable ignored) {}
-                lastDeliveredBuffer = null;
-            }
+            // No per-session buffer ref to release — the AIDL oneway dup
+            // gives each client its own HardwareBuffer ref, and the service
+            // keeps the backing Image alive in MirrorPipeline's rotation.
         }
     }
 
@@ -238,138 +263,390 @@ public final class WaferBackdropCaptureService extends SystemService {
         }
     }
 
-    private final class CaptureThread {
+    /**
+     * Dedicated {@link HandlerThread} that owns all pipeline I/O:
+     * {@link MirrorPipeline} construction, {@link ImageReader}
+     * {@link ImageReader.OnImageAvailableListener} dispatch, and task-switch
+     * handling. Serializing on a single handler avoids any locking around
+     * {@link MirrorPipeline} internals.
+     */
+    private static final class CaptureThread {
         private final HandlerThread mThread = new HandlerThread("WaferBackdropCapture");
         private Handler mHandler;
-        private Choreographer mChoreographer;
-        private long mLastCaptureStartNs;
-        private boolean mScheduled;
 
         void startUp() {
             mThread.start();
             mHandler = new Handler(mThread.getLooper());
-            mHandler.post(() -> mChoreographer = Choreographer.getInstance());
         }
 
         void quit() {
             mThread.quitSafely();
         }
 
-        void scheduleFrame() {
-            if (mHandler == null) return;
-            mHandler.post(() -> {
-                if (mScheduled || mChoreographer == null) return;
-                mScheduled = true;
-                mChoreographer.postFrameCallback(mFrameCallback);
-            });
+        Handler getHandler() {
+            return mHandler;
         }
 
-        private final Choreographer.FrameCallback mFrameCallback = frameTimeNs -> {
-            mScheduled = false;
-            runFrame(frameTimeNs);
-        };
+        void post(Runnable r) {
+            if (mHandler != null) mHandler.post(r);
+        }
+    }
 
-        private void runFrame(long frameTimeNs) {
-            final long now = SystemClock.elapsedRealtimeNanos();
-            if (now - mLastCaptureStartNs < PHASE1_MIN_FRAME_INTERVAL_NS) {
-                // Rate limit — reschedule without capturing.
-                rescheduleIfAnyActive();
+    // ---------------- Mirror pipeline ----------------
+
+    private void ensureMirrorPipelineLocked(int displayId) {
+        if (mMirrorPipeline != null) return;
+        final Rect bounds = getDisplayBounds(displayId);
+        if (bounds == null) {
+            Slog.e(TAG, "Cannot resolve display bounds for mirror pipeline on display "
+                    + displayId);
+            return;
+        }
+        if (mCaptureThread == null) {
+            Slog.e(TAG, "Capture thread not started before pipeline creation");
+            return;
+        }
+        final Handler handler = mCaptureThread.getHandler();
+        final int w = bounds.width();
+        final int h = bounds.height();
+        final MirrorPipeline pipeline = new MirrorPipeline(displayId, w, h, handler);
+        mMirrorPipeline = pipeline;
+        // Actual SF / GPU object construction happens on the handler thread
+        // (ImageReader's listener needs a Looper anyway).
+        handler.post(pipeline::initOnHandler);
+    }
+
+    /**
+     * Owns the offscreen capture plumbing for a single display. Built lazily
+     * when the first session on that display starts; destroyed when the last
+     * session ends.
+     *
+     * <p>All state here is touched only on the {@link CaptureThread} handler
+     * except for {@link #destroyed}, which is read from binder threads.
+     */
+    private final class MirrorPipeline implements ImageReader.OnImageAvailableListener {
+
+        final int displayId;
+        final int width;
+        final int height;
+        final Handler handler;
+
+        @Nullable ImageReader imageReader;
+        @Nullable VirtualDisplay virtualDisplay;
+        int virtualDisplayId = -1;
+
+        @Nullable SurfaceControl mirrorSc;
+        /** True when the mirror currently points at the wallpaper (fallback path). */
+        boolean mirrorIsWallpaper;
+
+        /** Most recently acquired image; kept alive so its HardwareBuffer remains valid. */
+        @Nullable Image currentImage;
+        /** Prior image; released on the next callback after the N+1 image arrives. */
+        @Nullable Image previousImage;
+
+        volatile boolean destroyed;
+
+        MirrorPipeline(int displayId, int width, int height, Handler handler) {
+            this.displayId = displayId;
+            this.width = width;
+            this.height = height;
+            this.handler = handler;
+        }
+
+        void initOnHandler() {
+            if (destroyed) return;
+            try {
+                imageReader = ImageReader.newInstance(
+                        width, height,
+                        PixelFormat.RGBA_8888,
+                        IMAGE_READER_MAX_IMAGES,
+                        HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE
+                                | HardwareBuffer.USAGE_GPU_COLOR_OUTPUT);
+            } catch (Throwable t) {
+                Slog.e(TAG, "ImageReader creation failed", t);
+                destroy();
                 return;
             }
-            mLastCaptureStartNs = now;
+            imageReader.setOnImageAvailableListener(this, handler);
 
-            // Snapshot the active sessions under the lock, then release it before
-            // hitting WMS / SurfaceFlinger.
+            final DisplayManager dm = mContext.getSystemService(DisplayManager.class);
+            if (dm == null) {
+                Slog.e(TAG, "DisplayManager unavailable; cannot create VirtualDisplay");
+                destroy();
+                return;
+            }
+            final Surface outputSurface = imageReader.getSurface();
+            try {
+                virtualDisplay = dm.createVirtualDisplay(
+                        "WaferBackdropMirror:" + displayId,
+                        width, height,
+                        160 /* densityDpi — offscreen, value is cosmetic */,
+                        outputSurface,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
+            } catch (Throwable t) {
+                Slog.e(TAG, "createVirtualDisplay threw", t);
+                destroy();
+                return;
+            }
+            if (virtualDisplay == null) {
+                Slog.e(TAG, "createVirtualDisplay returned null for backdrop mirror");
+                destroy();
+                return;
+            }
+            virtualDisplayId = virtualDisplay.getDisplay().getDisplayId();
+            Slog.i(TAG, "MirrorPipeline up: displayId=" + displayId
+                    + " vdId=" + virtualDisplayId
+                    + " size=" + width + "x" + height);
+
+            pointMirrorAtBestTarget();
+        }
+
+        /**
+         * Resolve the best mirror target for this display and (re)point the
+         * mirror layer at it:
+         *
+         * <ol>
+         *   <li>Topmost non-SystemUI task, if any.
+         *   <li>Wallpaper layer, if any.
+         *   <li>Neither — deliver {@code onBackdropUnavailable} to all sessions.
+         * </ol>
+         *
+         * Falling back to wallpaper inside the service means clients can treat
+         * {@code onBackdropUnavailable} as a degenerate-case signal and don't
+         * need their own wallpaper-loading path.
+         */
+        void pointMirrorAtBestTarget() {
+            if (destroyed) return;
+            final WindowManagerInternal wm = mWmInternal;
+            if (wm == null) {
+                deliverUnavailableToAll(WaferBackdropManager.REASON_NO_TARGET);
+                return;
+            }
+
+            // Try the foreground task first.
+            final SurfaceControl taskSc = wm.getTopTaskSurfaceControl(displayId);
+            if (taskSc != null) {
+                SurfaceControl newMirror = null;
+                try {
+                    newMirror = SurfaceControl.mirrorSurface(taskSc);
+                } catch (Throwable t) {
+                    Slog.w(TAG, "mirrorSurface(task) threw", t);
+                } finally {
+                    taskSc.release();
+                }
+                if (newMirror != null && newMirror.isValid()) {
+                    attachMirror(newMirror, false /* isWallpaper */);
+                    return;
+                }
+                if (newMirror != null) newMirror.release();
+            }
+
+            // Fallback: mirror the wallpaper layer. WMS handles the mirror
+            // creation internally (at the WallpaperWindowToken level to
+            // preserve scale/translation).
+            final SurfaceControl wallpaperMirror = wm.mirrorWallpaperSurface(displayId);
+            if (wallpaperMirror != null && wallpaperMirror.isValid()) {
+                attachMirror(wallpaperMirror, true /* isWallpaper */);
+                return;
+            }
+            if (wallpaperMirror != null) wallpaperMirror.release();
+
+            // Nothing to mirror — tear down any existing mirror and signal unavailable.
+            tearDownMirror();
+            deliverUnavailableToAll(WaferBackdropManager.REASON_NO_TARGET);
+        }
+
+        private void attachMirror(SurfaceControl newMirror, boolean isWallpaper) {
+            final WindowManagerInternal wm = mWmInternal;
+            if (wm == null) {
+                newMirror.release();
+                return;
+            }
+            final SurfaceControl vdRoot = wm.getDisplaySurfaceControl(virtualDisplayId);
+            if (vdRoot == null) {
+                Slog.e(TAG, "VirtualDisplay root SC unavailable; vdId=" + virtualDisplayId);
+                newMirror.release();
+                deliverUnavailableToAll(WaferBackdropManager.REASON_CAPTURE_FAILED);
+                return;
+            }
+            tearDownMirror();
+            mirrorSc = newMirror;
+            mirrorIsWallpaper = isWallpaper;
+            try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
+                t.reparent(mirrorSc, vdRoot)
+                        .setLayer(mirrorSc, Integer.MAX_VALUE)
+                        .setPosition(mirrorSc, 0f, 0f)
+                        .show(mirrorSc)
+                        .apply();
+            } finally {
+                vdRoot.release();
+            }
+            Slog.d(TAG, "mirror attached: isWallpaper=" + isWallpaper
+                    + " displayId=" + displayId);
+        }
+
+        private void tearDownMirror() {
+            if (mirrorSc != null) {
+                try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
+                    t.reparent(mirrorSc, null).apply();
+                }
+                mirrorSc.release();
+                mirrorSc = null;
+            }
+            mirrorIsWallpaper = false;
+        }
+
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            if (destroyed) return;
+
+            final Image image;
+            try {
+                image = reader.acquireLatestImage();
+            } catch (Throwable t) {
+                Slog.w(TAG, "acquireLatestImage threw", t);
+                return;
+            }
+            if (image == null) return;
+
+            final HardwareBuffer buffer;
+            try {
+                buffer = image.getHardwareBuffer();
+            } catch (Throwable t) {
+                Slog.w(TAG, "getHardwareBuffer threw", t);
+                image.close();
+                return;
+            }
+            if (buffer == null) {
+                image.close();
+                return;
+            }
+
+            // Rotate: the image we just acquired becomes currentImage; the old
+            // currentImage becomes previousImage; the old previousImage (two
+            // frames ago) is closed so its slot returns to the ImageReader.
+            // Only advance the rotation when we actually got a new frame, so a
+            // spurious callback or a drop doesn't leak the in-flight Image.
+            if (previousImage != null) {
+                try { previousImage.close(); } catch (Throwable ignored) {}
+            }
+            previousImage = currentImage;
+            currentImage = image;
+
+            final int w = image.getWidth();
+            final int h = image.getHeight();
+            final long presentTimeNs = image.getTimestamp();
+
             final Session[] active;
             synchronized (mLock) {
-                if (mSessions.isEmpty()) return;
+                if (mSessions.isEmpty()) {
+                    // No listeners; just keep currentImage alive for the next
+                    // rotation so the ImageReader doesn't starve.
+                    return;
+                }
                 active = mSessions.values().stream()
-                        .filter(s -> !s.paused)
+                        .filter(s -> !s.paused && s.displayId == displayId)
                         .toArray(Session[]::new);
             }
 
+            // Fan out to every session. The oneway AIDL marshalling dups the
+            // HardwareBuffer into each client process, so each client holds
+            // its own independent ref. On the service side, the backing Image
+            // stays alive in the currentImage/previousImage rotation, which
+            // guarantees the underlying AHardwareBuffer isn't recycled while
+            // clients are still sampling — satisfying the "valid until next
+            // onBufferAvailable" contract.
             for (Session s : active) {
-                captureAndDeliver(s, frameTimeNs);
+                final long seq = ++s.frameSeq;
+                try {
+                    s.callback.onBufferAvailable(buffer, seq, presentTimeNs, w, h);
+                } catch (RemoteException e) {
+                    Slog.w(TAG, "onBufferAvailable failed; tearing down session", e);
+                    stopSessionInternal(s.token);
+                }
             }
-            rescheduleIfAnyActive();
         }
 
-        private void rescheduleIfAnyActive() {
+        void destroy() {
+            if (destroyed) return;
+            destroyed = true;
+            tearDownMirror();
+            if (virtualDisplay != null) {
+                try { virtualDisplay.release(); } catch (Throwable ignored) {}
+                virtualDisplay = null;
+            }
+            if (imageReader != null) {
+                try { imageReader.close(); } catch (Throwable ignored) {}
+                imageReader = null;
+            }
+            if (currentImage != null) {
+                try { currentImage.close(); } catch (Throwable ignored) {}
+                currentImage = null;
+            }
+            if (previousImage != null) {
+                try { previousImage.close(); } catch (Throwable ignored) {}
+                previousImage = null;
+            }
+            Slog.i(TAG, "MirrorPipeline destroyed: displayId=" + displayId);
+        }
+    }
+
+    // ---------------- Task stack listener ----------------
+
+    private void registerTaskStackListenerLocked() {
+        if (mTaskStackListener != null) return;
+        if (mAtmInternal == null) {
+            Slog.w(TAG, "ATM unavailable; TaskStackListener not registered");
+            return;
+        }
+        mTaskStackListener = new TaskStackListenerImpl();
+        mAtmInternal.registerTaskStackListener(mTaskStackListener);
+    }
+
+    private void unregisterTaskStackListenerLocked() {
+        if (mTaskStackListener == null) return;
+        if (mAtmInternal != null) {
+            try {
+                mAtmInternal.unregisterTaskStackListener(mTaskStackListener);
+            } catch (Throwable ignored) {
+            }
+        }
+        mTaskStackListener = null;
+    }
+
+    private final class TaskStackListenerImpl extends TaskStackListener {
+        @Override
+        public void onTaskMovedToFront(RunningTaskInfo taskInfo) {
+            repointCurrentMirror();
+        }
+
+        @Override
+        public void onTaskStackChanged() {
+            // Task removed / keyguard transition etc. — re-evaluate target.
+            repointCurrentMirror();
+        }
+
+        private void repointCurrentMirror() {
+            final MirrorPipeline pipeline;
             synchronized (mLock) {
-                if (mSessions.isEmpty()) return;
+                pipeline = mMirrorPipeline;
             }
-            if (mChoreographer != null && !mScheduled) {
-                mScheduled = true;
-                mChoreographer.postFrameCallback(mFrameCallback);
+            if (pipeline != null && !pipeline.destroyed) {
+                pipeline.handler.post(pipeline::pointMirrorAtBestTarget);
             }
         }
+    }
 
-        private void captureAndDeliver(Session s, long frameTimeNs) {
-            final WindowManagerInternal wm = mWmInternal;
-            if (wm == null) {
-                deliverUnavailable(s, WaferBackdropManager.REASON_NO_TARGET);
-                return;
-            }
-            final SurfaceControl taskSc = wm.getTopTaskSurfaceControl(s.displayId);
-            if (taskSc == null) {
-                deliverUnavailable(s, WaferBackdropManager.REASON_NO_TARGET);
-                return;
-            }
-            final Rect crop = getDisplayBounds(s.displayId);
-            if (crop == null) {
-                deliverUnavailable(s, WaferBackdropManager.REASON_CAPTURE_FAILED);
-                return;
-            }
-            ScreenshotHardwareBuffer shb = null;
-            try {
-                final LayerCaptureArgs args = new LayerCaptureArgs.Builder(taskSc)
-                        .setSourceCrop(crop)
-                        .setChildrenOnly(true)
-                        .setFrameScale(1.0f)
-                        .build();
-                shb = ScreenCapture.captureLayers(args);
-            } catch (Throwable t) {
-                Slog.w(TAG, "captureLayers threw", t);
-            } finally {
-                // Release our standalone SurfaceControl ref.
-                taskSc.release();
-            }
+    // ---------------- Helpers ----------------
 
-            if (shb == null || shb.getHardwareBuffer() == null) {
-                Slog.w(TAG, "captureLayers returned null for displayId=" + s.displayId);
-                deliverUnavailable(s, WaferBackdropManager.REASON_CAPTURE_FAILED);
-                return;
-            }
-            if (shb.containsSecureLayers()) {
-                // Never leak DRM content; also release the buffer.
-                shb.getHardwareBuffer().close();
-                deliverUnavailable(s, WaferBackdropManager.REASON_SECURE_LAYER);
-                return;
-            }
-
-            final HardwareBuffer buf = shb.getHardwareBuffer();
-            final int w = buf.getWidth();
-            final int h = buf.getHeight();
-            final long seq = ++s.frameSeq;
-
-            // Ownership contract: the previous buffer is valid on the client until
-            // the next onBufferAvailable. Deliver first, then close the previous.
-            try {
-                s.callback.onBufferAvailable(buf, seq, frameTimeNs, w, h);
-            } catch (RemoteException e) {
-                Slog.w(TAG, "onBufferAvailable failed; tearing down session", e);
-                stopSessionInternal(s.token);
-                buf.close();
-                return;
-            }
-
-            if (s.lastDeliveredBuffer != null) {
-                try { s.lastDeliveredBuffer.close(); } catch (Throwable ignored) {}
-            }
-            s.lastDeliveredBuffer = buf;
+    private void deliverUnavailableToAll(int reason) {
+        final Session[] active;
+        synchronized (mLock) {
+            active = mSessions.values().stream()
+                    .filter(s -> !s.paused)
+                    .toArray(Session[]::new);
         }
-
-        private void deliverUnavailable(Session s, int reason) {
+        for (Session s : active) {
             try {
                 s.callback.onBackdropUnavailable(reason);
             } catch (RemoteException e) {
@@ -399,7 +676,7 @@ public final class WaferBackdropCaptureService extends SystemService {
 
     private void dumpInternal(PrintWriter pw) {
         synchronized (mLock) {
-            pw.println("WaferBackdropCaptureService");
+            pw.println("WaferBackdropCaptureService (Phase 2 — mirror pipeline)");
             pw.println("  active sessions: " + mSessions.size());
             for (Session s : mSessions.values()) {
                 pw.println("    token=" + s.token
@@ -409,14 +686,28 @@ public final class WaferBackdropCaptureService extends SystemService {
             }
             pw.println("  captureThread: "
                     + (mCaptureThread != null ? "running" : "stopped"));
+            pw.println("  taskStackListener: "
+                    + (mTaskStackListener != null ? "registered" : "unregistered"));
+            final MirrorPipeline p = mMirrorPipeline;
+            if (p != null) {
+                pw.println("  mirrorPipeline:");
+                pw.println("    displayId=" + p.displayId
+                        + " vdId=" + p.virtualDisplayId
+                        + " size=" + p.width + "x" + p.height
+                        + " target=" + (p.mirrorIsWallpaper ? "wallpaper" : "task")
+                        + " mirrorAttached=" + (p.mirrorSc != null)
+                        + " destroyed=" + p.destroyed);
+            } else {
+                pw.println("  mirrorPipeline: inactive");
+            }
         }
     }
 
     /**
      * {@code adb shell cmd wafer_backdrop ...}
      *
-     * Subcommands (P1):
-     *   dump-frame <path> [displayId]   synchronously captures the topmost Task
+     * Subcommands:
+     *   dump-frame &lt;path&gt; [displayId]   synchronously captures the topmost Task
      *                                   on displayId (default 0) and writes it
      *                                   as a PNG. No session required.
      */
@@ -479,8 +770,6 @@ public final class WaferBackdropCaptureService extends SystemService {
                 pw.println("wrapHardwareBuffer failed");
                 return 1;
             }
-            // Copy to software so we can PNG-encode (HW bitmaps aren't compressible
-            // directly).
             final Bitmap sw = hw.copy(Bitmap.Config.ARGB_8888, false);
             try (BufferedOutputStream out = new BufferedOutputStream(
                     new FileOutputStream(path))) {

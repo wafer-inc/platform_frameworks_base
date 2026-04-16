@@ -1063,6 +1063,26 @@ public abstract class WindowManagerInternal {
     public abstract SurfaceControl getTopTaskSurfaceControl(int displayId);
 
     /**
+     * Wafer: returns the root SurfaceControl of the given display (including
+     * virtual displays). Caller owns the returned copy and must release it.
+     * Used by the backdrop capture service to reparent the mirror layer into
+     * an offscreen VirtualDisplay's layer tree.
+     */
+    @Nullable
+    public abstract SurfaceControl getDisplaySurfaceControl(int displayId);
+
+    /**
+     * Wafer: returns a mirror SurfaceControl of the top visible wallpaper on
+     * the given display, or {@code null} if no wallpaper is visible. Mirrors
+     * at the WallpaperWindowToken level to preserve scale/translation applied
+     * to the wallpaper surface. Used by the backdrop capture service as a
+     * fallback when the foreground task can't be mirrored (secure layer, no
+     * task, etc.) so that clients always receive a live backdrop.
+     */
+    @Nullable
+    public abstract SurfaceControl mirrorWallpaperSurface(int displayId);
+
+    /**
      * Captures the entire display specified by the displayId using the args provided. If the args
      * are null or if the sourceCrop is invalid or null, the entire display bounds will be captured.
      */

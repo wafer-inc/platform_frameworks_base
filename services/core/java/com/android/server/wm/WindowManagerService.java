@@ -8735,6 +8735,28 @@ public class WindowManagerService extends IWindowManager.Stub
         }
 
         @Override
+        @Nullable
+        public SurfaceControl getDisplaySurfaceControl(int displayId) {
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContent(displayId);
+                if (dc == null) return null;
+                final SurfaceControl sc = dc.getSurfaceControl();
+                if (sc == null || !sc.isValid()) return null;
+                return new SurfaceControl(sc, "WaferBackdrop.getDisplaySurfaceControl");
+            }
+        }
+
+        @Override
+        @Nullable
+        public SurfaceControl mirrorWallpaperSurface(int displayId) {
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContent(displayId);
+                if (dc == null) return null;
+                return dc.mWallpaperController.mirrorWallpaperSurface();
+            }
+        }
+
+        @Override
         public void captureDisplay(int displayId, @Nullable ScreenCapture.CaptureArgs captureArgs,
                                    ScreenCapture.ScreenCaptureListener listener) {
             WindowManagerService.this.captureDisplay(displayId, captureArgs, listener);
