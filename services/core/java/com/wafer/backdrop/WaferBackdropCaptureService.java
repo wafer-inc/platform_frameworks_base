@@ -30,6 +30,7 @@ import android.os.RemoteException;
 import android.os.ResultReceiver;
 import android.os.ShellCommand;
 import android.util.Slog;
+import android.view.ContentRecordingSession;
 import android.view.Surface;
 import android.view.SurfaceControl;
 import android.window.ScreenCapture;
@@ -52,17 +53,17 @@ import java.util.Map;
 /**
  * Phase 2 implementation of the Wafer backdrop capture service.
  *
- * <p>The service mirrors the foreground task's {@link SurfaceControl} using
- * {@link SurfaceControl#mirrorSurface}, reparents it under an offscreen
- * {@link VirtualDisplay} whose output surface is an {@link ImageReader}, and
- * delivers the composited {@link HardwareBuffer} to clients on every vsync.
- * No CPU readback, no rate limit — capture runs at the display's native
- * refresh rate.
+ * <p>The service creates an offscreen {@link VirtualDisplay} whose output
+ * surface is an {@link ImageReader}, then installs a
+ * {@link ContentRecordingSession} that tells SurfaceFlinger to route the
+ * composition of the top foreground task into that VirtualDisplay. Each new
+ * composed frame arrives as a {@link HardwareBuffer} on the ImageReader's
+ * callback and is fanned out to clients. No CPU readback, no rate limit —
+ * capture runs at the display's native refresh rate.
  *
- * <p>When the top task isn't a suitable mirror target (no task, secure/DRM
- * layer black-filled by SF, etc.) the service falls back to mirroring the
- * wallpaper so clients always receive frames and never need their own
- * wallpaper-loading path.
+ * <p>When there's no foreground task (lockscreen, empty launcher state), the
+ * service delivers {@code onBackdropUnavailable} and clients fall back to a
+ * flat tint.
  *
  * @hide
  */
@@ -75,6 +76,16 @@ public final class WaferBackdropCaptureService extends SystemService {
 
     /** Max in-flight buffers in the ImageReader: 1 compositing + 1 delivered + 1 previous. */
     private static final int IMAGE_READER_MAX_IMAGES = 3;
+
+    /**
+     * Max attempts to install a {@link ContentRecordingSession} after creating
+     * the VirtualDisplay. WMS may briefly not have a {@code DisplayContent}
+     * registered for a freshly-created VD; we back off and retry.
+     */
+    private static final int MAX_SETUP_ATTEMPTS = 10;
+
+    /** Delay between setup retries. */
+    private static final long SETUP_RETRY_DELAY_MS = 50L;
 
     private final Context mContext;
     private final BinderService mBinder = new BinderService();
@@ -335,9 +346,10 @@ public final class WaferBackdropCaptureService extends SystemService {
         @Nullable VirtualDisplay virtualDisplay;
         int virtualDisplayId = -1;
 
-        @Nullable SurfaceControl mirrorSc;
-        /** True when the mirror currently points at the wallpaper (fallback path). */
-        boolean mirrorIsWallpaper;
+        /** IBinder of the task currently being routed to the VD, or null if none. */
+        @Nullable IBinder activeTaskToken;
+        /** True after we've successfully installed a ContentRecordingSession. */
+        boolean sessionActive;
 
         /** Most recently acquired image; kept alive so its HardwareBuffer remains valid. */
         @Nullable Image currentImage;
@@ -398,24 +410,25 @@ public final class WaferBackdropCaptureService extends SystemService {
                     + " vdId=" + virtualDisplayId
                     + " size=" + width + "x" + height);
 
-            pointMirrorAtBestTarget();
+            pointMirrorAtBestTarget(0 /* attempt */);
         }
 
         /**
-         * Resolve the best mirror target for this display and (re)point the
-         * mirror layer at it:
+         * Resolve the best mirror target for this display and install a
+         * {@link android.view.ContentRecordingSession} that routes the task's
+         * composition into this pipeline's VirtualDisplay.
          *
-         * <ol>
-         *   <li>Topmost non-SystemUI task, if any.
-         *   <li>Wallpaper layer, if any.
-         *   <li>Neither — deliver {@code onBackdropUnavailable} to all sessions.
-         * </ol>
+         * <p>If no task is available, tear down any active session and signal
+         * {@code onBackdropUnavailable}. A future follow-up can add wallpaper
+         * fallback here for lockscreen/empty-home coverage.
          *
-         * Falling back to wallpaper inside the service means clients can treat
-         * {@code onBackdropUnavailable} as a degenerate-case signal and don't
-         * need their own wallpaper-loading path.
+         * <p>Race handling: right after {@link DisplayManager#createVirtualDisplay},
+         * the corresponding WMS {@code DisplayContent} may not be registered
+         * yet — the recording session install silently no-ops in that case.
+         * We retry up to {@link #MAX_SETUP_ATTEMPTS} times with
+         * {@link #SETUP_RETRY_DELAY_MS} backoff.
          */
-        void pointMirrorAtBestTarget() {
+        void pointMirrorAtBestTarget(int attempt) {
             if (destroyed) return;
             final WindowManagerInternal wm = mWmInternal;
             if (wm == null) {
@@ -423,77 +436,61 @@ public final class WaferBackdropCaptureService extends SystemService {
                 return;
             }
 
-            // Try the foreground task first.
-            final SurfaceControl taskSc = wm.getTopTaskSurfaceControl(displayId);
-            if (taskSc != null) {
-                SurfaceControl newMirror = null;
-                try {
-                    newMirror = SurfaceControl.mirrorSurface(taskSc);
-                } catch (Throwable t) {
-                    Slog.w(TAG, "mirrorSurface(task) threw", t);
-                } finally {
-                    taskSc.release();
+            final IBinder taskToken = wm.getTopTaskWindowContainerToken(displayId);
+            if (taskToken == null) {
+                if (sessionActive) {
+                    stopSession();
                 }
-                if (newMirror != null && newMirror.isValid()) {
-                    attachMirror(newMirror, false /* isWallpaper */);
+                deliverUnavailableToAll(WaferBackdropManager.REASON_NO_TARGET);
+                return;
+            }
+
+            // Same task as currently recording? Nothing to do.
+            if (sessionActive && taskToken.equals(activeTaskToken)) {
+                return;
+            }
+
+            // Content recording requires tearing down a same-display session
+            // before installing a new one (the controller otherwise skips the
+            // swap as an "identical" incoming session).
+            if (sessionActive) {
+                stopSession();
+            }
+
+            final ContentRecordingSession newSession =
+                    ContentRecordingSession.createTaskSession(taskToken)
+                            .setVirtualDisplayId(virtualDisplayId);
+            final boolean ok = wm.setBackdropContentRecordingSession(newSession);
+            if (!ok) {
+                // WMS couldn't accept the session yet — most likely the VD's
+                // DisplayContent isn't registered. Retry with backoff.
+                if (attempt < MAX_SETUP_ATTEMPTS) {
+                    Slog.w(TAG, "setBackdropContentRecordingSession failed on attempt "
+                            + attempt + "; retrying");
+                    final int next = attempt + 1;
+                    handler.postDelayed(() -> pointMirrorAtBestTarget(next),
+                            SETUP_RETRY_DELAY_MS);
                     return;
                 }
-                if (newMirror != null) newMirror.release();
-            }
-
-            // Fallback: mirror the wallpaper layer. WMS handles the mirror
-            // creation internally (at the WallpaperWindowToken level to
-            // preserve scale/translation).
-            final SurfaceControl wallpaperMirror = wm.mirrorWallpaperSurface(displayId);
-            if (wallpaperMirror != null && wallpaperMirror.isValid()) {
-                attachMirror(wallpaperMirror, true /* isWallpaper */);
-                return;
-            }
-            if (wallpaperMirror != null) wallpaperMirror.release();
-
-            // Nothing to mirror — tear down any existing mirror and signal unavailable.
-            tearDownMirror();
-            deliverUnavailableToAll(WaferBackdropManager.REASON_NO_TARGET);
-        }
-
-        private void attachMirror(SurfaceControl newMirror, boolean isWallpaper) {
-            final WindowManagerInternal wm = mWmInternal;
-            if (wm == null) {
-                newMirror.release();
-                return;
-            }
-            final SurfaceControl vdRoot = wm.getDisplaySurfaceControl(virtualDisplayId);
-            if (vdRoot == null) {
-                Slog.e(TAG, "VirtualDisplay root SC unavailable; vdId=" + virtualDisplayId);
-                newMirror.release();
+                Slog.e(TAG, "setBackdropContentRecordingSession failed after "
+                        + MAX_SETUP_ATTEMPTS + " attempts");
                 deliverUnavailableToAll(WaferBackdropManager.REASON_CAPTURE_FAILED);
                 return;
             }
-            tearDownMirror();
-            mirrorSc = newMirror;
-            mirrorIsWallpaper = isWallpaper;
-            try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
-                t.reparent(mirrorSc, vdRoot)
-                        .setLayer(mirrorSc, Integer.MAX_VALUE)
-                        .setPosition(mirrorSc, 0f, 0f)
-                        .show(mirrorSc)
-                        .apply();
-            } finally {
-                vdRoot.release();
-            }
-            Slog.d(TAG, "mirror attached: isWallpaper=" + isWallpaper
-                    + " displayId=" + displayId);
+            activeTaskToken = taskToken;
+            sessionActive = true;
+            Slog.d(TAG, "ContentRecordingSession installed: vdId=" + virtualDisplayId
+                    + " attempt=" + attempt);
         }
 
-        private void tearDownMirror() {
-            if (mirrorSc != null) {
-                try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
-                    t.reparent(mirrorSc, null).apply();
-                }
-                mirrorSc.release();
-                mirrorSc = null;
+        private void stopSession() {
+            if (!sessionActive) return;
+            final WindowManagerInternal wm = mWmInternal;
+            if (wm != null) {
+                wm.setBackdropContentRecordingSession(null);
             }
-            mirrorIsWallpaper = false;
+            sessionActive = false;
+            activeTaskToken = null;
         }
 
         @Override
@@ -570,7 +567,7 @@ public final class WaferBackdropCaptureService extends SystemService {
         void destroy() {
             if (destroyed) return;
             destroyed = true;
-            tearDownMirror();
+            stopSession();
             if (virtualDisplay != null) {
                 try { virtualDisplay.release(); } catch (Throwable ignored) {}
                 virtualDisplay = null;
@@ -632,7 +629,7 @@ public final class WaferBackdropCaptureService extends SystemService {
                 pipeline = mMirrorPipeline;
             }
             if (pipeline != null && !pipeline.destroyed) {
-                pipeline.handler.post(pipeline::pointMirrorAtBestTarget);
+                pipeline.handler.post(() -> pipeline.pointMirrorAtBestTarget(0));
             }
         }
     }
@@ -694,8 +691,8 @@ public final class WaferBackdropCaptureService extends SystemService {
                 pw.println("    displayId=" + p.displayId
                         + " vdId=" + p.virtualDisplayId
                         + " size=" + p.width + "x" + p.height
-                        + " target=" + (p.mirrorIsWallpaper ? "wallpaper" : "task")
-                        + " mirrorAttached=" + (p.mirrorSc != null)
+                        + " sessionActive=" + p.sessionActive
+                        + " activeTaskToken=" + p.activeTaskToken
                         + " destroyed=" + p.destroyed);
             } else {
                 pw.println("  mirrorPipeline: inactive");

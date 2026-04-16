@@ -8736,23 +8736,35 @@ public class WindowManagerService extends IWindowManager.Stub
 
         @Override
         @Nullable
-        public SurfaceControl getDisplaySurfaceControl(int displayId) {
+        public IBinder getTopTaskWindowContainerToken(int displayId) {
             synchronized (mGlobalLock) {
                 final DisplayContent dc = mRoot.getDisplayContent(displayId);
                 if (dc == null) return null;
-                final SurfaceControl sc = dc.getSurfaceControl();
-                if (sc == null || !sc.isValid()) return null;
-                return new SurfaceControl(sc, "WaferBackdrop.getDisplaySurfaceControl");
+                final Task task = dc.getTopRootTask();
+                if (task == null || task.mRemoteToken == null) return null;
+                return task.mRemoteToken.toWindowContainerToken().asBinder();
             }
         }
 
         @Override
-        @Nullable
-        public SurfaceControl mirrorWallpaperSurface(int displayId) {
+        public boolean setBackdropContentRecordingSession(
+                @Nullable ContentRecordingSession session) {
             synchronized (mGlobalLock) {
-                final DisplayContent dc = mRoot.getDisplayContent(displayId);
-                if (dc == null) return null;
-                return dc.mWallpaperController.mirrorWallpaperSurface();
+                if (session != null) {
+                    // Verify the target VirtualDisplay is reachable before
+                    // committing the session. ContentRecordingController's
+                    // setContentRecordingSessionLocked silently no-ops when
+                    // the DisplayContent doesn't exist, so report that up to
+                    // the caller here instead of losing the failure.
+                    final DisplayContent dc = mRoot.getDisplayContentOrCreate(
+                            session.getVirtualDisplayId());
+                    if (dc == null) {
+                        return false;
+                    }
+                }
+                mContentRecordingController.setContentRecordingSessionLocked(session,
+                        WindowManagerService.this);
+                return true;
             }
         }
 

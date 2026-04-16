@@ -1063,24 +1063,25 @@ public abstract class WindowManagerInternal {
     public abstract SurfaceControl getTopTaskSurfaceControl(int displayId);
 
     /**
-     * Wafer: returns the root SurfaceControl of the given display (including
-     * virtual displays). Caller owns the returned copy and must release it.
-     * Used by the backdrop capture service to reparent the mirror layer into
-     * an offscreen VirtualDisplay's layer tree.
+     * Wafer: returns the {@link android.window.WindowContainerToken} (as its
+     * {@link IBinder}) of the topmost non-SystemUI task on the given display,
+     * or {@code null} if no such task is visible. Used by the backdrop capture
+     * service to build a {@link android.view.ContentRecordingSession} that
+     * routes the task's composition into an offscreen VirtualDisplay.
      */
     @Nullable
-    public abstract SurfaceControl getDisplaySurfaceControl(int displayId);
+    public abstract IBinder getTopTaskWindowContainerToken(int displayId);
 
     /**
-     * Wafer: returns a mirror SurfaceControl of the top visible wallpaper on
-     * the given display, or {@code null} if no wallpaper is visible. Mirrors
-     * at the WallpaperWindowToken level to preserve scale/translation applied
-     * to the wallpaper surface. Used by the backdrop capture service as a
-     * fallback when the foreground task can't be mirrored (secure layer, no
-     * task, etc.) so that clients always receive a live backdrop.
+     * Wafer: install an already-built {@link android.view.ContentRecordingSession}
+     * directly on the WindowManager's ContentRecordingController, bypassing the
+     * MediaProjection launch-cookie lookup that the IPC surface does. Used by
+     * the backdrop capture service which knows the task token up front via
+     * {@link #getTopTaskWindowContainerToken}. Returns {@code true} if the session
+     * was accepted.
      */
-    @Nullable
-    public abstract SurfaceControl mirrorWallpaperSurface(int displayId);
+    public abstract boolean setBackdropContentRecordingSession(
+            @Nullable android.view.ContentRecordingSession session);
 
     /**
      * Captures the entire display specified by the displayId using the args provided. If the args
