@@ -40,18 +40,35 @@ public final class PixelPropsUtils {
 
     private static final String GOOGLE_CAMERA = "com.google.android.GoogleCamera";
 
-    // Spoof as Pixel 9 Pro XL (komodo), matching a real factory fingerprint.
-    private static final Map<String, String> CAMERA_PROPS = Map.of(
-        "BRAND",        "google",
-        "MANUFACTURER", "Google",
-        "DEVICE",       "komodo",
-        "PRODUCT",      "komodo",
-        "HARDWARE",     "komodo",
-        "MODEL",        "Pixel 9 Pro XL",
-        "ID",           "BP1A.250505.005.D1",
-        "FINGERPRINT",  "google/komodo/komodo:15/BP1A.250505.005.D1/12837754:user/release-keys",
-        "TYPE",         "user",
-        "TAGS",         "release-keys"
+    // Factory fingerprints keyed by the real Build.DEVICE of this device.
+    // The spoof only activates when the physical device matches one of these
+    // keys, so e.g. a tokay doesn't claim to be komodo and trigger the wrong
+    // sensor code path in GCam.
+    private static final Map<String, Map<String, String>> CAMERA_PROPS_BY_DEVICE = Map.of(
+        "komodo", Map.of(
+            "BRAND",        "google",
+            "MANUFACTURER", "Google",
+            "DEVICE",       "komodo",
+            "PRODUCT",      "komodo",
+            "HARDWARE",     "komodo",
+            "MODEL",        "Pixel 9 Pro XL",
+            "ID",           "BP1A.250505.005.D1",
+            "FINGERPRINT",  "google/komodo/komodo:15/BP1A.250505.005.D1/12837754:user/release-keys",
+            "TYPE",         "user",
+            "TAGS",         "release-keys"
+        ),
+        "tokay", Map.of(
+            "BRAND",        "google",
+            "MANUFACTURER", "Google",
+            "DEVICE",       "tokay",
+            "PRODUCT",      "tokay",
+            "HARDWARE",     "tokay",
+            "MODEL",        "Pixel 9",
+            "ID",           "BP1A.250505.005",
+            "FINGERPRINT",  "google/tokay/tokay:15/BP1A.250505.005/13277524:user/release-keys",
+            "TYPE",         "user",
+            "TAGS",         "release-keys"
+        )
     );
 
     // System features that should appear present to spoofed packages.
@@ -86,9 +103,16 @@ public final class PixelPropsUtils {
         final String pkg = context.getPackageName();
         if (!GOOGLE_CAMERA.equals(pkg)) return;
 
-        Log.i(TAG, "Spoofing Build props for " + pkg);
+        final Map<String, String> props = CAMERA_PROPS_BY_DEVICE.get(Build.DEVICE);
+        if (props == null) {
+            Log.i(TAG, "No factory fingerprint defined for device " + Build.DEVICE
+                    + "; skipping spoof for " + pkg);
+            return;
+        }
+
+        Log.i(TAG, "Spoofing Build props for " + pkg + " as " + Build.DEVICE);
         sSpoofedPackage = true;
-        CAMERA_PROPS.forEach(PixelPropsUtils::setField);
+        props.forEach(PixelPropsUtils::setField);
     }
 
     /**
