@@ -432,6 +432,32 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             "android.intent.action.VOICE_ASSIST_RETAIL";
 
     /**
+     * Wafer extension: walkie-talkie semantics for long-press-power-ASSISTANT.
+     * When the assistant fires from a long-press, the launcher starts voice
+     * input. We then track the held-then-released power-key state and
+     * broadcast this action on KEY_UP so the launcher can finalize the
+     * transcript at the natural moment the user lets go of the button —
+     * giving us press-and-hold-to-talk with no speech being cut off.
+     */
+    private static final String ACTION_WAFER_VOICE_HOLD_END =
+            "com.wafer.intent.action.VOICE_HOLD_END";
+
+    /**
+     * Set when long-press-power-ASSISTANT fires; cleared on the next power
+     * key up. While set, KEY_UP triggers ACTION_WAFER_VOICE_HOLD_END so the
+     * launcher knows to finalize the in-flight voice session.
+     */
+    private boolean mWaferVoiceHoldActive = false;
+    private long mWaferVoiceHoldStartedAt = 0L;
+    /**
+     * Minimum time (ms) the user must keep power held *after* the long-press
+     * threshold for the release to count as "walkie-talkie release". Below
+     * this, the release is treated as a quick let-go and VAD takes over —
+     * the user just wanted to summon voice, not press-and-hold.
+     */
+    private static final long WAFER_VOICE_HOLD_MIN_MS = 1000L;
+
+    /**
      * Lock protecting internal state.  Must not call out into window
      * manager with lock held.  (This lock will be acquired in places
      * where the window manager is calling in with its own lock held.)
@@ -1113,6 +1139,25 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private void interceptPowerKeyUp(KeyEvent event, boolean canceled) {
         // Inform the StatusBar; but do not allow it to consume the event.
         sendSystemKeyToStatusBarAsync(event);
+        // Wafer walkie-talkie: if the long-press already fired and the
+        // user kept holding past WAFER_VOICE_HOLD_MIN_MS, treat the
+        // release as a hold-end signal and finalize the transcript
+        // instantly. A quick release right after long-press fired
+        // means the user just wanted to summon voice; let VAD handle
+        // termination naturally.
+        if (mWaferVoiceHoldActive) {
+            mWaferVoiceHoldActive = false;
+            long heldMs = SystemClock.uptimeMillis() - mWaferVoiceHoldStartedAt;
+            if (heldMs >= WAFER_VOICE_HOLD_MIN_MS) {
+                Intent intent = new Intent(ACTION_WAFER_VOICE_HOLD_END);
+                intent.setFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY
+                        | Intent.FLAG_RECEIVER_FOREGROUND);
+                mContext.sendBroadcast(intent);
+                Slog.d(TAG, "wafer voice hold end broadcast sent (held " + heldMs + "ms)");
+            } else {
+                Slog.d(TAG, "wafer voice quick release (" + heldMs + "ms), VAD takes over");
+            }
+        }
         finishPowerKeyPress();
     }
 
@@ -1453,6 +1498,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 final int powerKeyDeviceId = INVALID_INPUT_DEVICE_ID;
                 launchAssistAction(null, powerKeyDeviceId, eventTime,
                         AssistUtils.INVOCATION_TYPE_POWER_BUTTON_LONG_PRESS);
+                // Wafer walkie-talkie: arm the hold-end signal so the
+                // user can release power to finalize the transcript.
+                mWaferVoiceHoldActive = true;
+                mWaferVoiceHoldStartedAt = SystemClock.uptimeMillis();
                 break;
         }
     }
