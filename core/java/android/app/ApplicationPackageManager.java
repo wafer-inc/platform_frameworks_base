@@ -134,6 +134,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.pm.RoSystemFeatures;
 import com.android.internal.util.UserIcons;
+import com.android.internal.util.wafer.PixelPropsUtils;
 
 import dalvik.system.VMRuntime;
 
@@ -779,6 +780,9 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public boolean hasSystemFeature(String name) {
+        if (PixelPropsUtils.shouldSpoofFeature(name)) {
+            return true;
+        }
         return hasSystemFeature(name, 0);
     }
 
@@ -824,6 +828,9 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public boolean hasSystemFeature(String name, int version) {
+        if (PixelPropsUtils.shouldSpoofFeature(name)) {
+            return true;
+        }
         return mHasSystemFeatureCache.query(new HasSystemFeatureQuery(name, version));
     }
 
