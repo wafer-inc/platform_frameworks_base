@@ -1291,6 +1291,8 @@ public final class AudioAttributes implements Parcelable {
                     || (preset == MediaRecorder.AudioSource.VOICE_CALL)
                     || (preset == MediaRecorder.AudioSource.ECHO_REFERENCE)
                     || (preset == MediaRecorder.AudioSource.ULTRASOUND)
+                    // Wafer fork: virtual source for system VoIP tx observation.
+                    || (preset == MediaRecorder.AudioSource.VOIP_TX_OBSERVE)
                     // AUDIO_SOURCE_INVALID is used by convention on default initialized
                     // audio attributes
                     || (preset == MediaRecorder.AudioSource.AUDIO_SOURCE_INVALID)) {

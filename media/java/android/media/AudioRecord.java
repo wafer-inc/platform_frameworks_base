@@ -1026,7 +1026,8 @@ public class AudioRecord implements AudioRouting, MicrophoneDirection,
                         || source == MediaRecorder.AudioSource.VOICE_DOWNLINK
                         || source == MediaRecorder.AudioSource.VOICE_UPLINK
                         || source == MediaRecorder.AudioSource.VOICE_CALL
-                        || source == MediaRecorder.AudioSource.ECHO_REFERENCE) {
+                        || source == MediaRecorder.AudioSource.ECHO_REFERENCE
+                        || source == MediaRecorder.AudioSource.VOIP_TX_OBSERVE) {
                     throw new UnsupportedOperationException(
                             "Cannot request private capture with source: " + source);
                 }
@@ -1152,7 +1153,9 @@ public class AudioRecord implements AudioRouting, MicrophoneDirection,
                     && (audioSource != MediaRecorder.AudioSource.RADIO_TUNER)
                     && (audioSource != MediaRecorder.AudioSource.ECHO_REFERENCE)
                     && (audioSource != MediaRecorder.AudioSource.HOTWORD)
-                    && (audioSource != MediaRecorder.AudioSource.ULTRASOUND))) {
+                    && (audioSource != MediaRecorder.AudioSource.ULTRASOUND)
+                    // Wafer fork: virtual source for system VoIP tx observation.
+                    && (audioSource != MediaRecorder.AudioSource.VOIP_TX_OBSERVE))) {
             throw new IllegalArgumentException("Invalid audio source " + audioSource);
         }
         mRecordSource = audioSource;
