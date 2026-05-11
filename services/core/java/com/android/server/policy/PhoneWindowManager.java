@@ -455,7 +455,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
      * this, the release is treated as a quick let-go and VAD takes over —
      * the user just wanted to summon voice, not press-and-hold.
      */
-    private static final long WAFER_VOICE_HOLD_MIN_MS = 1000L;
+    private static final long WAFER_VOICE_HOLD_MIN_MS = 2000L;
 
     /**
      * Lock protecting internal state.  Must not call out into window
