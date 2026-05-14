@@ -2041,7 +2041,7 @@
          This setting is ignored if config_enableGeolocationTimeZoneDetection is false.
 
          AOSP does not configure a primary location time zone provider. -->
-    <bool name="config_enablePrimaryLocationTimeZoneProvider" translatable="false">false</bool>
+    <bool name="config_enablePrimaryLocationTimeZoneProvider" translatable="false">true</bool>
 
     <!-- The package hosting the primary location time zone provider.
          Only used when config_enableGeolocationTimeZoneDetection and
@@ -2049,7 +2049,7 @@
 
          See android.service.timezone.TimeZoneProviderService for how to host location time zone
          provider services. -->
-    <string name="config_primaryLocationTimeZoneProviderPackageName" translatable="false"></string>
+    <string name="config_primaryLocationTimeZoneProviderPackageName" translatable="false">com.google.android.gms</string>
 
     <!-- Whether the secondary location time zone provider is enabled.
          This setting is ignored if config_enableGeolocationTimeZoneDetection is false.
