@@ -449,13 +449,6 @@ public class PhoneWindowManager implements WindowManagerPolicy {
      */
     private boolean mWaferVoiceHoldActive = false;
     private long mWaferVoiceHoldStartedAt = 0L;
-    /**
-     * Minimum time (ms) the user must keep power held *after* the long-press
-     * threshold for the release to count as "walkie-talkie release". Below
-     * this, the release is treated as a quick let-go and VAD takes over —
-     * the user just wanted to summon voice, not press-and-hold.
-     */
-    private static final long WAFER_VOICE_HOLD_MIN_MS = 2000L;
 
     /**
      * Lock protecting internal state.  Must not call out into window
@@ -1139,24 +1132,18 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private void interceptPowerKeyUp(KeyEvent event, boolean canceled) {
         // Inform the StatusBar; but do not allow it to consume the event.
         sendSystemKeyToStatusBarAsync(event);
-        // Wafer walkie-talkie: if the long-press already fired and the
-        // user kept holding past WAFER_VOICE_HOLD_MIN_MS, treat the
-        // release as a hold-end signal and finalize the transcript
-        // instantly. A quick release right after long-press fired
-        // means the user just wanted to summon voice; let VAD handle
-        // termination naturally.
+        // Wafer walkie-talkie: if the assistant long-press already fired,
+        // always notify the launcher on release. The launcher owns the
+        // tap-vs-hold decision and can either finalize immediately or hand
+        // the in-flight session back to VAD.
         if (mWaferVoiceHoldActive) {
             mWaferVoiceHoldActive = false;
             long heldMs = SystemClock.uptimeMillis() - mWaferVoiceHoldStartedAt;
-            if (heldMs >= WAFER_VOICE_HOLD_MIN_MS) {
-                Intent intent = new Intent(ACTION_WAFER_VOICE_HOLD_END);
-                intent.setFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY
-                        | Intent.FLAG_RECEIVER_FOREGROUND);
-                mContext.sendBroadcast(intent);
-                Slog.d(TAG, "wafer voice hold end broadcast sent (held " + heldMs + "ms)");
-            } else {
-                Slog.d(TAG, "wafer voice quick release (" + heldMs + "ms), VAD takes over");
-            }
+            Intent intent = new Intent(ACTION_WAFER_VOICE_HOLD_END);
+            intent.setFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY
+                    | Intent.FLAG_RECEIVER_FOREGROUND);
+            mContext.sendBroadcast(intent);
+            Slog.d(TAG, "wafer voice release broadcast sent (held " + heldMs + "ms)");
         }
         finishPowerKeyPress();
     }
