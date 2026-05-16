@@ -422,6 +422,27 @@ public class MediaRecorder implements AudioRouting,
         @RequiresPermission(android.Manifest.permission.ACCESS_ULTRASOUND)
         public static final int ULTRASOUND = 2000;
 
+        /**
+         * Wafer fork: system-level observer of the user's microphone during
+         * another app's active VoIP call (audio mode
+         * MODE_IN_COMMUNICATION). Permission-gated by
+         * {@link android.Manifest.permission#CAPTURE_AUDIO_OUTPUT} —
+         * platform components only.
+         *
+         * <p>Treated as a virtual source on the audio policy side so per-track
+         * silencing rules do not apply. Rides alongside the call app's own
+         * microphone capture without disrupting it.
+         *
+         * <p>Intentionally not annotated {@code @SystemApi}; consumers reach
+         * this constant via {@code platform_apis: true} on the platform
+         * classpath, so the SystemApi @FlaggedApi lint requirement does not
+         * apply. Marked {@code @hide} so it is excluded from public/system
+         * stubs entirely.
+         *
+         * @hide
+         */
+        public static final int VOIP_TX_OBSERVE = 2001;
+
     }
 
     /** @hide */
@@ -457,6 +478,7 @@ public class MediaRecorder implements AudioRouting,
         AudioSource.RADIO_TUNER,
         AudioSource.HOTWORD,
         AudioSource.ULTRASOUND,
+        AudioSource.VOIP_TX_OBSERVE,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SystemSource {}
@@ -507,6 +529,7 @@ public class MediaRecorder implements AudioRouting,
             case AudioSource.RADIO_TUNER:
             case AudioSource.HOTWORD:
             case AudioSource.ULTRASOUND:
+            case AudioSource.VOIP_TX_OBSERVE:
                 return true;
             default:
                 return false;
@@ -546,6 +569,8 @@ public class MediaRecorder implements AudioRouting,
                 return "HOTWORD";
             case AudioSource.ULTRASOUND:
                 return "ULTRASOUND";
+            case AudioSource.VOIP_TX_OBSERVE:
+                return "VOIP_TX_OBSERVE";
             case AudioSource.AUDIO_SOURCE_INVALID:
                 return "AUDIO_SOURCE_INVALID";
             default:

@@ -214,7 +214,9 @@ android_media_MediaRecorder_setAudioSource(JNIEnv *env, jobject thiz, jint as)
 {
     ALOGV("setAudioSource(%d)", as);
     if (as < AUDIO_SOURCE_DEFAULT ||
-        (as >= AUDIO_SOURCE_CNT && as != AUDIO_SOURCE_FM_TUNER)) {
+        (as >= AUDIO_SOURCE_CNT
+            && as != AUDIO_SOURCE_FM_TUNER
+            && as != AUDIO_SOURCE_VOIP_TX_OBSERVE)) {
         jniThrowException(env, "java/lang/IllegalArgumentException", "Invalid audio source");
         return;
     }
