@@ -1054,6 +1054,48 @@ public abstract class WindowManagerInternal {
     public abstract SurfaceControl getA11yOverlayLayer(int displayId);
 
     /**
+     * Wafer: returns the SurfaceControl of the topmost non-SystemUI Task on the
+     * given display, or {@code null} if no such Task is visible. Caller owns the
+     * returned SurfaceControl copy and must release it. Used by the backdrop
+     * capture service to mirror / snapshot the app content below the shade.
+     */
+    @Nullable
+    public abstract SurfaceControl getTopTaskSurfaceControl(int displayId);
+
+    /**
+     * Wafer: returns the root SurfaceControl of the given display (including
+     * virtual displays). Caller owns the returned copy and must release it.
+     * Used by the backdrop capture service to reparent a mirror layer into
+     * an offscreen VirtualDisplay's layer tree.
+     */
+    @Nullable
+    public abstract SurfaceControl getDisplaySurfaceControl(int displayId);
+
+    /**
+     * Wafer: returns a mirror SurfaceControl of the top visible wallpaper on
+     * the given display, or {@code null} if no wallpaper is visible. Mirrors
+     * at the WallpaperWindowToken level to preserve scale/translation applied
+     * to the wallpaper surface. Used by the backdrop capture service as a
+     * fallback when the foreground task can't be mirrored (no task, etc.) so
+     * clients always receive a live backdrop.
+     */
+    @Nullable
+    public abstract SurfaceControl mirrorWallpaperSurface(int displayId);
+
+    /**
+     * Wafer: detaches the windowing and overlay layers of the given (virtual)
+     * display so only mirrored content we reparent under the display root is
+     * composited into the display's output surface. This is the same
+     * "clear the canvas" step that {@code ContentRecorder} performs for
+     * MediaProjection; without it, SurfaceFlinger composites the VD's own
+     * (empty) window/overlay tree on top of anything we mirror in, and no
+     * frames flow through to the output surface.
+     *
+     * <p>Idempotent. Returns {@code true} if the display was found.
+     */
+    public abstract boolean detachVirtualDisplayContentLayers(int virtualDisplayId);
+
+    /**
      * Captures the entire display specified by the displayId using the args provided. If the args
      * are null or if the sourceCrop is invalid or null, the entire display bounds will be captured.
      */

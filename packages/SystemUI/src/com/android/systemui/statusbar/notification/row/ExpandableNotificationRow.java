@@ -1100,6 +1100,11 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             mNotificationParent.setMinimumHeightForClipping(0);
         }
         mNotificationParent = isChildInGroup ? parent : null;
+        // Wafer reskin: tell our background view to skip its own glass plate when
+        // we're a child of a group. The parent group's plate covers us instead.
+        if (mBackgroundNormal != null) {
+            mBackgroundNormal.setIsGroupChild(isChildInGroup);
+        }
         mPrivateLayout.setIsChildInGroup(isChildInGroup);
         if (LockscreenOtpRedaction.isSingleLineViewEnabled()) {
             mPublicLayout.setIsChildInGroup(isChildInGroup);
@@ -3054,6 +3059,26 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
         if (mLayoutListener != null) {
             mLayoutListener.onLayout();
         }
+        // Wafer reskin: keep the summary's wafer plate bottom aligned with the
+        // children container's actual bottom after layout. mChildrenContainer's
+        // measured/laid-out bottom changes when children are added/removed,
+        // expanded, or animated, and onLayout is the safest place to react.
+        //
+        // Cap at getActualHeight() — the row sets clipBounds to actualHeight via
+        // ExpandableView.updateClipping(), so anything painted past that y is
+        // clipped off. The children container's getBottom() can exceed
+        // actualHeight when it's laid out at the row's full FrameLayout height
+        // while the row's visible content is shorter (intrinsic height); without
+        // the cap, the plate's rounded bottom corners fall outside the clip and
+        // the bottom edge renders as a flat horizontal cut at y=actualHeight.
+        if (mIsSummaryWithChildren && mBackgroundNormal != null) {
+            int extended = 0;
+            if (isGroupExpanded() && mChildrenContainer != null
+                    && mChildrenContainer.getVisibility() == VISIBLE) {
+                extended = Math.min(mChildrenContainer.getBottom(), getActualHeight());
+            }
+            mBackgroundNormal.setWaferExtendedBottom(extended);
+        }
         Trace.endSection();
     }
 
@@ -3607,6 +3632,11 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
      * Updates the parent and children backgrounds in a group based on the expansion state.
      */
     public void updateBackgroundForGroupState() {
+        // Wafer reskin: default to no extended bottom; only summaries with an
+        // expanded children container set a positive value below.
+        if (mBackgroundNormal != null) {
+            mBackgroundNormal.setWaferExtendedBottom(0);
+        }
         if (mIsSummaryWithChildren) {
             // Only when the group has finished expanding do we hide its background.
             mShowNoBackground = !mShowGroupBackgroundWhenExpanded && isGroupExpanded()
@@ -3615,6 +3645,23 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
             List<ExpandableNotificationRow> children = mChildrenContainer.getAttachedChildren();
             for (int i = 0; i < children.size(); i++) {
                 children.get(i).updateBackgroundForGroupState();
+            }
+            // Wafer reskin: when this summary's group is expanded, extend its glass
+            // plate's bottom to cover the children's region. The children themselves
+            // draw with mIsGroupChild=true so we don't get stacked plates. The
+            // children container's bottom is in this row's local coordinates because
+            // the container is a direct child of the summary row.
+            //
+            // Cap at getActualHeight() — see the matching comment in onLayout(): the
+            // row's clipBounds clip at actualHeight, so painting past it produces a
+            // flat bottom cut instead of a rounded corner.
+            if (mBackgroundNormal != null) {
+                int extended = 0;
+                if (isGroupExpanded() && mChildrenContainer != null
+                        && mChildrenContainer.getVisibility() == VISIBLE) {
+                    extended = Math.min(mChildrenContainer.getBottom(), getActualHeight());
+                }
+                mBackgroundNormal.setWaferExtendedBottom(extended);
             }
         } else if (isChildInGroup()) {
             final int childColor = getShowingLayout().getBackgroundColorForExpansionState();

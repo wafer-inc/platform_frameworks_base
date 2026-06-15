@@ -23,6 +23,8 @@
     android:layout_height="wrap_content"
     android:focusable="true"
     android:clickable="true"
+    android:clipChildren="false"
+    android:clipToPadding="false"
     >
 
     <!-- Menu displayed behind notification added here programmatically -->

@@ -15,7 +15,15 @@
   ~ limitations under the License.
   -->
 
+<!--
+  Wafer reskin (Phase 04) — the visible tile card is now drawn by
+  WaferGlassDelegate inside QSTileViewImpl, so the base layer of
+  qs_tile_background.xml is forced to a transparent tint at construction time.
+  This shape is still referenced as the RippleDrawable mask, so it must keep
+  an opaque solid colour for the ripple bounds calculation. The radius is
+  matched to the Wafer card corner so the ripple lines up with the glass card.
+-->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <corners android:radius="@dimen/qs_corner_radius" />
+    <corners android:radius="@*android:dimen/wafer_corner_card" />
     <solid android:color="#FFFFFF" />
 </shape>

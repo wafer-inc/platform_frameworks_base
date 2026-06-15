@@ -27,6 +27,8 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuff.Mode;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.os.Looper;
 import android.util.AttributeSet;
@@ -34,17 +36,15 @@ import android.view.MotionEvent;
 import android.view.View;
 
 import androidx.annotation.Nullable;
-import androidx.core.graphics.ColorUtils;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.colorextraction.ColorExtractor;
+import com.android.systemui.res.R;
 import com.android.systemui.shade.TouchLogger;
 import com.android.systemui.util.LargeScreenUtils;
 
 import java.util.concurrent.Executor;
-
-import static com.android.systemui.Flags.notificationShadeBlur;
 
 /**
  * A view which can draw a scrim.  This view maybe be used in multiple windows running on different
@@ -70,6 +70,11 @@ public class ScrimView extends View {
     @Nullable
     private Rect mDrawableBounds;
 
+    // Wafer reskin: backdrop blur of whatever sits behind this scrim view.
+    private final float mWaferBlurRadiusPx;
+    private boolean mWaferBlurApplied;
+    private final int mWaferGlassTint;
+
     public ScrimView(Context context) {
         this(context, null);
     }
@@ -92,6 +97,10 @@ public class ScrimView extends View {
         mColors = new ColorExtractor.GradientColors();
         mExecutorLooper = Looper.myLooper();
         mExecutor = Runnable::run;
+        // Wafer reskin: read the panel blur radius and glass tint from framework resources
+        // (Phase 00 wired these into core/res/res/values/wafer_glass.xml).
+        mWaferBlurRadiusPx = getResources().getDimension(R.dimen.wafer_blur_radius_panel);
+        mWaferGlassTint = context.getColor(R.color.wafer_glass_tint_dark);
         executeOnExecutor(() -> {
             updateColorWithTint(false);
         });
@@ -244,19 +253,12 @@ public class ScrimView extends View {
 
     private void updateColorWithTint(boolean animated) {
         if (mDrawable instanceof ScrimDrawable) {
-            // Optimization to blend colors and avoid a color filter
-            ScrimDrawable drawable = (ScrimDrawable) mDrawable;
-            float tintAmount = Color.alpha(mTintColor) / 255f;
-
-            int mainTinted = mTintColor;
-            if (mBlendWithMainColor) {
-                mainTinted = ColorUtils.blendARGB(mColors.getMainColor(), mTintColor, tintAmount);
-            }
-            if (notificationShadeBlur()) {
-                // TODO(b/370555223): Fix color and transparency to match visual spec exactly
-                mainTinted = ColorUtils.blendARGB(mColors.getMainColor(), Color.GRAY, 0.5f);
-            }
-            drawable.setColor(mainTinted, animated);
+            // Wafer reskin: ignore wallpaper-extracted main color and the in-progress
+            // upstream notificationShadeBlur() placeholder. The view's RenderEffect blur
+            // (see setViewAlpha) provides the frosted backdrop, and we paint a fixed
+            // low-alpha glass tint on top so the surface looks the same regardless of
+            // wallpaper or theme color extraction.
+            ((ScrimDrawable) mDrawable).setColor(mWaferGlassTint, animated);
         } else {
             boolean hasAlpha = Color.alpha(mTintColor) != 0;
             if (hasAlpha) {
@@ -300,8 +302,27 @@ public class ScrimView extends View {
                 mViewAlpha = alpha;
 
                 mDrawable.setAlpha((int) (255 * alpha));
+                updateWaferBlur();
             }
         });
+    }
+
+    /**
+     * Wafer reskin: gate the backdrop blur on view alpha so we don't burn GPU on a
+     * fully-transparent scrim. The blur radius is fixed (read in the constructor from
+     * {@code R.dimen.wafer_blur_radius_panel}); only its on/off state changes.
+     */
+    private void updateWaferBlur() {
+        if (mViewAlpha > 0f) {
+            if (!mWaferBlurApplied) {
+                setRenderEffect(RenderEffect.createBlurEffect(
+                        mWaferBlurRadiusPx, mWaferBlurRadiusPx, Shader.TileMode.CLAMP));
+                mWaferBlurApplied = true;
+            }
+        } else if (mWaferBlurApplied) {
+            setRenderEffect(null);
+            mWaferBlurApplied = false;
+        }
     }
 
     public float getViewAlpha() {

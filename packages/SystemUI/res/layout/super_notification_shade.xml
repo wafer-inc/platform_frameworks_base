@@ -47,6 +47,15 @@
         sysui:ignoreRightInset="true"
     />
 
+    <!-- Wafer reskin (Phase 02): hairline glass border drawn over the shade panel. -->
+    <View
+        android:id="@+id/wafer_shade_panel_border"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/wafer_shade_panel_border"
+        android:importantForAccessibility="no"
+        sysui:ignoreRightInset="true" />
+
     <com.android.systemui.statusbar.LightRevealScrim
         android:id="@+id/light_reveal_scrim"
         android:layout_width="match_parent"

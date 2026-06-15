@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wafer reskin (Phase 02) — hairline border drawn around the notification shade
+  panel. Hairline tint and width come from the framework wafer_glass tokens
+  added in Phase 00 (frameworks/base/core/res/res/values/wafer_glass.xml).
+
+  Note: we deliberately do NOT paint a top-edge highlight gradient here. The
+  shade panel is full-window so a top-anchored gradient ends up as a wide bright
+  band across the QS tiles, which fights the surface treatment on the tiles and
+  notifications themselves. The shade's "glass" feel comes from the Phase 02
+  ScrimView blur + the wafer_glass_tint_dark fill — the per-element highlight
+  belongs on individual cards, not on the panel as a whole.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+       android:shape="rectangle">
+    <stroke
+        android:width="@*android:dimen/wafer_glass_border_width"
+        android:color="@*android:color/wafer_glass_border" />
+    <solid android:color="@android:color/transparent" />
+</shape>

@@ -279,6 +279,7 @@ import android.webkit.WebViewBootstrapFrameworkInitializer;
 
 import com.android.internal.R;
 import com.android.internal.app.IAppOpsService;
+// Wafer: backdrop capture service manager registration (see WaferBackdropManager).
 import com.android.internal.app.IBatteryStats;
 import com.android.internal.app.ISoundTriggerService;
 import com.android.internal.appwidget.IAppWidgetService;
@@ -708,6 +709,18 @@ public final class SystemServiceRegistry {
             @Override
             public StatusBarManager createService(ContextImpl ctx) {
                 return new StatusBarManager(ctx.getOuterContext());
+            }});
+
+        registerService(Context.WAFER_BACKDROP_CAPTURE_SERVICE,
+                com.wafer.backdrop.WaferBackdropManager.class,
+                new CachedServiceFetcher<com.wafer.backdrop.WaferBackdropManager>() {
+            @Override
+            public com.wafer.backdrop.WaferBackdropManager createService(ContextImpl ctx)
+                    throws ServiceNotFoundException {
+                IBinder b = ServiceManager.getServiceOrThrow(
+                        Context.WAFER_BACKDROP_CAPTURE_SERVICE);
+                return new com.wafer.backdrop.WaferBackdropManager(ctx.getOuterContext(),
+                        com.wafer.backdrop.IWaferBackdropCaptureService.Stub.asInterface(b));
             }});
 
         registerService(Context.STORAGE_SERVICE, StorageManager.class,

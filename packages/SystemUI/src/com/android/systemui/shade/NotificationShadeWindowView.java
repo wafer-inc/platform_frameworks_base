@@ -77,6 +77,12 @@ public class NotificationShadeWindowView extends WindowRootView {
 
     private SafeCloseable mViewCaptureCloseable;
 
+    // Wafer reskin (Phase 11): owns the WaferGlassController for this window and feeds
+    // it the static wallpaper bitmap as the per-element blur source. Notification rows
+    // and any other WaferGlassDelegate descendants find the controller via the root-tag
+    // mechanism in WaferGlass.find().
+    private final WaferShadeGlassSource mWaferShadeGlass = new WaferShadeGlassSource(this);
+
     public NotificationShadeWindowView(Context context, AttributeSet attrs) {
         super(context, attrs);
         setMotionEventSplittingEnabled(false);
@@ -90,14 +96,22 @@ public class NotificationShadeWindowView extends WindowRootView {
             mViewCaptureCloseable = ViewCaptureFactory.getInstance(getContext())
                 .startCapture(getRootView(), ".NotificationShadeWindowView");
         }
+        mWaferShadeGlass.onAttachedToWindow();
     }
 
     @Override
     protected void onDetachedFromWindow() {
+        mWaferShadeGlass.onDetachedFromWindow();
         super.onDetachedFromWindow();
         if (mViewCaptureCloseable != null) {
             mViewCaptureCloseable.close();
         }
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        mWaferShadeGlass.onSizeChanged(w, h);
     }
 
     @Override

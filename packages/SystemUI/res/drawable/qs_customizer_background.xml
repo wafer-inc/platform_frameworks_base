@@ -13,7 +13,13 @@
     See the License for the specific language governing permissions and
     limitations under the License.
 -->
+<!--
+  Wafer reskin (Phase 04): customizer background is transparent — the shade
+  scrim from Phase 02 already provides the blurred backdrop, and the tile
+  previews drag-and-drop on top use the same WaferGlassDelegate-backed
+  QSTileViewImpl glass cards as the main QS panel.
+-->
 <transition xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@drawable/qs_customizer_background_transition" />
-    <item android:drawable="@drawable/qs_customizer_background_primary" />
+    <item android:drawable="@android:color/transparent" />
+    <item android:drawable="@android:color/transparent" />
 </transition>

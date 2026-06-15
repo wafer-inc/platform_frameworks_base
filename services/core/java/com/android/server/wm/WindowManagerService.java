@@ -8718,6 +8718,65 @@ public class WindowManagerService extends IWindowManager.Stub
         }
 
         @Override
+        @Nullable
+        public SurfaceControl getTopTaskSurfaceControl(int displayId) {
+            // Resolve the top Task's SurfaceControl under mGlobalLock, but return
+            // a standalone copy so the caller can capture without holding the
+            // lock across the SurfaceFlinger round-trip.
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContent(displayId);
+                if (dc == null) return null;
+                final Task task = dc.getTopRootTask();
+                if (task == null) return null;
+                final SurfaceControl sc = task.getSurfaceControl();
+                if (sc == null || !sc.isValid()) return null;
+                return new SurfaceControl(sc, "WaferBackdrop.getTopTaskSurfaceControl");
+            }
+        }
+
+        @Override
+        @Nullable
+        public SurfaceControl getDisplaySurfaceControl(int displayId) {
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContentOrCreate(displayId);
+                if (dc == null) return null;
+                final SurfaceControl sc = dc.getSurfaceControl();
+                if (sc == null || !sc.isValid()) return null;
+                return new SurfaceControl(sc, "WaferBackdrop.getDisplaySurfaceControl");
+            }
+        }
+
+        @Override
+        @Nullable
+        public SurfaceControl mirrorWallpaperSurface(int displayId) {
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContent(displayId);
+                if (dc == null) return null;
+                return dc.mWallpaperController.mirrorWallpaperSurface();
+            }
+        }
+
+        @Override
+        public boolean detachVirtualDisplayContentLayers(int virtualDisplayId) {
+            synchronized (mGlobalLock) {
+                final DisplayContent dc = mRoot.getDisplayContentOrCreate(virtualDisplayId);
+                if (dc == null) return false;
+                final SurfaceControl windowing = dc.getWindowingLayer();
+                final SurfaceControl overlay = dc.getOverlayLayer();
+                try (SurfaceControl.Transaction t = new SurfaceControl.Transaction()) {
+                    if (windowing != null && windowing.isValid()) {
+                        t.reparent(windowing, null);
+                    }
+                    if (overlay != null && overlay.isValid()) {
+                        t.reparent(overlay, null);
+                    }
+                    t.apply();
+                }
+                return true;
+            }
+        }
+
+        @Override
         public void captureDisplay(int displayId, @Nullable ScreenCapture.CaptureArgs captureArgs,
                                    ScreenCapture.ScreenCaptureListener listener) {
             WindowManagerService.this.captureDisplay(displayId, captureArgs, listener);
