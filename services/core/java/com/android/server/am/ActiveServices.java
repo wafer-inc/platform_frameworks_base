@@ -3044,6 +3044,20 @@ public final class ActiveServices {
             notification.flags |= Notification.FLAG_FOREGROUND_SERVICE;
             sr.foregroundNoti = notification;
 
+            // Wafer: the always-on "okay computer" wakeword service must hold an
+            // FGS microphone notification to keep background mic access, but we
+            // don't want it cluttering the shade. Suppress its display while
+            // keeping the service foreground — UPDATE_ONLY never surfaces a
+            // not-yet-visible notification, and there is no post-notification
+            // enforcement that would kill the service for it. The green mic
+            // privacy indicator is AppOps-driven and stays visible.
+            if ("com.wafer.launcher".equals(pkg)
+                    && (sr.foregroundServiceType
+                            & ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) != 0) {
+                sr.mFgsNotificationDeferred = false;
+                return ServiceNotificationPolicy.UPDATE_ONLY;
+            }
+
             // ...and determine immediate vs deferred display policy for it
             final boolean showNow = shouldShowFgsNotificationLocked(sr);
             if (showNow) {
