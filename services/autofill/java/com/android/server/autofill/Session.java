@@ -198,6 +198,7 @@ import com.android.server.autofill.ui.InlineFillUi;
 import com.android.server.autofill.ui.PendingUi;
 import com.android.server.inputmethod.InputMethodManagerInternal;
 import com.android.server.wm.ActivityTaskManagerInternal;
+import com.android.server.wm.WindowManagerInternal;
 
 import java.io.PrintWriter;
 import java.lang.annotation.Retention;
@@ -268,6 +269,9 @@ final class Session
      * of the activity being autofilled.
      */
     private final Context mContext;
+
+    /** Display of the client activity, as the activity manager reports it. */
+    private final int mActivityDisplayId;
 
     private final MetricsLogger mMetricsLogger = new MetricsLogger();
 
@@ -1534,6 +1538,7 @@ final class Session
                 mService.getRemoteInlineSuggestionRenderServiceLocked();
         if (mSessionFlags.mInlineSupportedByService
                 && remoteRenderService != null
+                && imeCanAppearOnSessionDisplay()
                 && (isViewFocusedLocked(flags) || isRequestSupportFillDialog(flags))) {
             Consumer<InlineSuggestionsRequest> inlineSuggestionsRequestConsumer =
                     mAssistReceiver.newAutofillRequestLocked(
@@ -1576,6 +1581,50 @@ final class Session
 
     private boolean isRequestSupportFillDialog(int flags) {
         return (flags & FLAG_SUPPORTS_FILL_DIALOG) != 0;
+    }
+
+    /**
+     * Whether an IME can be shown on this session's display. The inline
+     * suggestions request is produced by the IME, so on a display whose IME
+     * policy is {@code DISPLAY_IME_POLICY_HIDE} the fill request would wait for
+     * an answer that never comes and no provider would ever be asked. Such
+     * displays fall back to the dropdown fill UI instead.
+     *
+     * Only privileged callers can set that policy, so an untrusted display
+     * can't reach the new branch. Any failure answers {@code true}, which is
+     * the pre-existing behavior on every display.
+     */
+    private boolean imeCanAppearOnSessionDisplay() {
+        try {
+            final WindowManagerInternal wm =
+                    LocalServices.getService(WindowManagerInternal.class);
+            if (wm == null) {
+                return true;
+            }
+            // Not mContext.getDisplayId(): outside visible-background-user
+            // builds the session context stays on the default display.
+            final int displayId = mActivityDisplayId;
+            // Runs inside the client app's binder call; the policy query is
+            // permission-checked against the caller, so query as the system.
+            final int policy;
+            final long token = android.os.Binder.clearCallingIdentity();
+            try {
+                policy = wm.getDisplayImePolicy(displayId);
+            } finally {
+                android.os.Binder.restoreCallingIdentity(token);
+            }
+            if (policy == android.view.WindowManager.DISPLAY_IME_POLICY_HIDE) {
+                if (sVerbose) {
+                    Slog.v(TAG, "IME policy is HIDE on display " + displayId
+                            + "; skipping inline suggestions request");
+                }
+                return false;
+            }
+            return true;
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "imeCanAppearOnSessionDisplay failed; assuming it can", e);
+            return true;
+        }
     }
 
     @GuardedBy("mLock")
@@ -1718,6 +1767,7 @@ final class Session
                 LocalServices.getService(ActivityTaskManagerInternal.class)
                         .getDisplayId(activityToken);
         mContext = Helper.getDisplayContext(context, displayId);
+        mActivityDisplayId = displayId;
         mComponentName = componentName;
         mCompatMode = compatMode;
         mSessionState = STATE_ACTIVE;
