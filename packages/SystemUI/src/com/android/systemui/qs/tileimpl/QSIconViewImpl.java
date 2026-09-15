@@ -38,7 +38,6 @@ import android.widget.ImageView.ScaleType;
 
 import androidx.annotation.VisibleForTesting;
 
-import com.android.settingslib.Utils;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.State;
@@ -78,9 +77,15 @@ public class QSIconViewImpl extends QSIconView {
         mIconSizePx = res.getDimensionPixelSize(R.dimen.qs_icon_size);
 
         if (qsNewTiles()) { // pre-load icon tint colors
-            mColorUnavailable = Utils.getColorAttrDefaultColor(context, R.attr.outline);
-            mColorInactive = Utils.getColorAttrDefaultColor(context, R.attr.onShadeInactiveVariant);
-            mColorActive = Utils.getColorAttrDefaultColor(context, R.attr.onShadeActive);
+            // Wafer reskin (Phase 04): iOS-style inversion. Active tile
+            // is a solid wafer_white card, so the icon flips to
+            // wafer_black for contrast. Inactive tiles are dark glass
+            // with wafer_white icons; unavailable falls back to
+            // wafer_gray and the view-level UNAVAILABLE_ALPHA fade does
+            // the rest.
+            mColorUnavailable = context.getColor(R.color.wafer_gray);
+            mColorInactive = context.getColor(R.color.wafer_white);
+            mColorActive = context.getColor(R.color.wafer_black);
         }
 
         mIcon = createIcon();
@@ -270,12 +275,14 @@ public class QSIconViewImpl extends QSIconView {
      * Color to tint the tile icon based on state
      */
     private static int getIconColorForState(Context context, QSTile.State state) {
+        // Wafer reskin (Phase 04): iOS-style inversion. Active = dark
+        // icon on white card, inactive = white icon on dark glass.
         if (state.disabledByPolicy || state.state == Tile.STATE_UNAVAILABLE) {
-            return Utils.getColorAttrDefaultColor(context, R.attr.outline);
+            return context.getColor(R.color.wafer_gray);
         } else if (state.state == Tile.STATE_INACTIVE) {
-            return Utils.getColorAttrDefaultColor(context, R.attr.onShadeInactiveVariant);
+            return context.getColor(R.color.wafer_white);
         } else if (state.state == Tile.STATE_ACTIVE) {
-            return Utils.getColorAttrDefaultColor(context, R.attr.onShadeActive);
+            return context.getColor(R.color.wafer_black);
         } else {
             Log.e("QSIconView", "Invalid state " + state);
             return 0;

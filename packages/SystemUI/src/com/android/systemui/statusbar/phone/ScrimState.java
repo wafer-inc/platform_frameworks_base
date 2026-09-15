@@ -99,10 +99,10 @@ public enum ScrimState {
             // based on the shade expansion
 
             mFrontTint = mBackgroundColor;
-            mFrontAlpha = .66f;
+            mFrontAlpha = 0.40f;
 
             mBehindTint = mBackgroundColor;
-            mBehindAlpha = 1f;
+            mBehindAlpha = 0.25f;
         }
     },
 
@@ -116,7 +116,7 @@ public enum ScrimState {
             mBehindAlpha = previousState.mBehindAlpha;
 
             mFrontTint = mBackgroundColor;
-            mFrontAlpha = .66f;
+            mFrontAlpha = 0.40f;
         }
     },
 
@@ -126,9 +126,10 @@ public enum ScrimState {
     BOUNCER {
         @Override
         public void prepare(ScrimState previousState) {
-            mBehindAlpha = mClipQsScrim ? 1 : mDefaultScrimAlpha;
+            // Wafer reskin: PIN entry needs more contrast than the default shade alpha.
+            mBehindAlpha = mClipQsScrim ? 1 : ScrimController.WAFER_BOUNCER_SCRIM_ALPHA;
             mBehindTint = mClipQsScrim ? mBackgroundColor : mSurfaceColor;
-            mNotifAlpha = mClipQsScrim ? mDefaultScrimAlpha : 0;
+            mNotifAlpha = mClipQsScrim ? ScrimController.WAFER_BOUNCER_SCRIM_ALPHA : 0;
             mNotifTint = Color.TRANSPARENT;
             mFrontAlpha = 0f;
         }
@@ -157,7 +158,8 @@ public enum ScrimState {
         @Override
         public void prepare(ScrimState previousState) {
             mBehindAlpha = mClipQsScrim ? 1 : mDefaultScrimAlpha;
-            mNotifAlpha = 1f;
+            // Wafer reskin: was 1f — let the blurred backdrop show through the notif scrim.
+            mNotifAlpha = 0.25f;
             mFrontAlpha = 0f;
             mBehindTint = mClipQsScrim ? Color.TRANSPARENT : mBackgroundColor;
 

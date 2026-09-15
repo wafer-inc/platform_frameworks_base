@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wafer reskin (Phase 02) — SystemUI-local aliases for the framework wafer_glass
+  tokens. We mirror them here so that ScrimView can read them via
+  com.android.systemui.res.R without requiring the underlying framework symbols
+  to be exposed through frameworks/base/core/res/.../symbols.xml.
+-->
+<resources>
+    <color name="wafer_glass_tint_dark">@*android:color/wafer_glass_tint_dark</color>
+    <color name="wafer_glass_border">@*android:color/wafer_glass_border</color>
+    <color name="wafer_shadow">@*android:color/wafer_shadow</color>
+    <color name="wafer_glass_button_bg">@*android:color/wafer_glass_button_bg</color>
+    <color name="wafer_teal">@*android:color/wafer_teal</color>
+    <color name="wafer_black">@*android:color/wafer_black</color>
+    <color name="wafer_white">@*android:color/wafer_white</color>
+    <color name="wafer_gray">@*android:color/wafer_gray</color>
+    <color name="wafer_text_shadow">@*android:color/wafer_text_shadow</color>
+    <dimen name="wafer_glass_border_width">@*android:dimen/wafer_glass_border_width</dimen>
+    <dimen name="wafer_blur_radius_panel">@*android:dimen/wafer_blur_radius_panel</dimen>
+    <dimen name="wafer_blur_radius_card">@*android:dimen/wafer_blur_radius_card</dimen>
+    <dimen name="wafer_shadow_blur">@*android:dimen/wafer_shadow_blur</dimen>
+    <dimen name="wafer_shadow_offset_y">@*android:dimen/wafer_shadow_offset_y</dimen>
+    <dimen name="wafer_text_shadow_blur">@*android:dimen/wafer_text_shadow_blur</dimen>
+    <dimen name="wafer_text_shadow_offset_y">@*android:dimen/wafer_text_shadow_offset_y</dimen>
+    <dimen name="wafer_corner_card">@*android:dimen/wafer_corner_card</dimen>
+    <dimen name="wafer_corner_pill">@*android:dimen/wafer_corner_pill</dimen>
+</resources>

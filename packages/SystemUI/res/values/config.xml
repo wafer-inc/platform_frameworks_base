@@ -442,8 +442,13 @@
     <bool name="config_showNotificationGroupCountInExpander">true</bool>
 
     <!-- Whether or not a view containing child notifications will have a custom background when
-         it has been expanded to reveal its children. -->
-    <bool name="config_showGroupNotificationBgWhenExpanded">false</bool>
+         it has been expanded to reveal its children.
+         Wafer reskin: keep this true so the group SUMMARY keeps its NotificationBackgroundView
+         visible when expanded. The summary's wafer glass plate is then extended (via
+         setWaferExtendedBottom) to cover the children's region, and the children themselves
+         draw with mIsGroupChild=true so they don't paint their own glass on top. The result
+         is one unified glass plate per group instead of multiple stacked plates. -->
+    <bool name="config_showGroupNotificationBgWhenExpanded">true</bool>
 
     <!-- Should we vibrate on an icon animation of the shelf. This should only be active if the
      vibrator is capable of subtle vibrations -->

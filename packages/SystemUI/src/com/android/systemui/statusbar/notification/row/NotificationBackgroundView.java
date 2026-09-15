@@ -40,6 +40,8 @@ import com.android.systemui.Dumpable;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.notification.shared.NotificationAddXOnHoverToDismiss;
 import com.android.systemui.util.DrawableDumpKt;
+import com.wafer.glass.WaferGlassDelegate;
+import com.wafer.glass.tokens.WaferGlassTokens;
 
 import java.io.PrintWriter;
 import java.util.Arrays;
@@ -76,6 +78,26 @@ public class NotificationBackgroundView extends View implements Dumpable,
     // True only if the dismiss button is visible.
     private boolean mDrawDismissButtonCutout = false;
 
+    // Wafer glass surface — delegated to the shared wafer-glass library so the
+    // recipe (drop shadow + tint + hairline border, with optional real wallpaper
+    // blur from WaferShadeGlassSource) stays identical across SystemUI, the
+    // launcher, and any future consumers.
+    //
+    // We deliberately disable the per-row top-edge highlight gradient: the launcher
+    // uses it on individual cards over a clean wallpaper, but on a notification row
+    // sitting over a real-wallpaper-blur source it reads as a fake "shiny strip" on
+    // every notification, which the user explicitly called out as bad.
+    @NonNull private final WaferGlassDelegate mWaferGlass;
+
+    // Wafer glass: when true, this row is a child of an expanded group, so we skip
+    // its individual glass plate. The summary row's plate (extended to cover the
+    // children's region) gives the whole group a single unified glass surface, with
+    // the existing notification dividers separating children inside it.
+    private boolean mIsGroupChild;
+    // Wafer glass: when > 0, the wafer plate's bottom extends to this Y so a
+    // summary row's plate covers the children stacked beneath it.
+    private int mWaferExtendedBottom;
+
     public NotificationBackgroundView(Context context, AttributeSet attrs) {
         super(context, attrs);
         mDontModifyCorners = getResources().getBoolean(R.bool.config_clipNotificationsToOutline);
@@ -86,6 +108,54 @@ public class NotificationBackgroundView extends View implements Dumpable,
         mNormalColor = Utils.getColorAttrDefaultColor(mContext,
                 com.android.internal.R.attr.materialColorSurfaceContainerHigh);
         mFocusOverlayStroke = getResources().getDimension(R.dimen.notification_focus_stroke_width);
+
+        mWaferGlass = new WaferGlassDelegate(this,
+                WaferGlassTokens.blurRadiusCardPx(context),
+                WaferGlassTokens.cornerCardPx(context));
+        // No top-edge highlight on notifications. See class comment.
+        mWaferGlass.setHighlightEnabled(false);
+    }
+
+    /**
+     * Wafer glass: marks this row as a child of an expanded group. Group children
+     * skip their individual glass plate so the parent group's plate (extended via
+     * {@link #setWaferExtendedBottom(int)}) appears as a single unified surface
+     * spanning the whole group, with the notification dividers separating children
+     * inside it.
+     */
+    public void setIsGroupChild(boolean isGroupChild) {
+        if (mIsGroupChild == isGroupChild) return;
+        mIsGroupChild = isGroupChild;
+        invalidate();
+    }
+
+    /**
+     * Wafer glass: extends the wafer plate's bottom to this Y so a summary row's
+     * plate covers the entire expanded group (header + children + dividers). Pass
+     * 0 to revert to the row's own height.
+     */
+    public void setWaferExtendedBottom(int extendedBottom) {
+        if (mWaferExtendedBottom == extendedBottom) return;
+        mWaferExtendedBottom = extendedBottom;
+        invalidate();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        mWaferGlass.onAttachedToWindow();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        mWaferGlass.onDetachedFromWindow();
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        mWaferGlass.onSizeChanged(w, h);
     }
 
     @Override
@@ -102,7 +172,32 @@ public class NotificationBackgroundView extends View implements Dumpable,
 
     @Override
     protected void onDraw(Canvas canvas) {
+        // Wafer glass: in stock AOSP, mBackground==null short-circuited onDraw to a
+        // no-op (see the legacy `draw(canvas, mBackground)` null check below). The
+        // backgroundDimmed sibling in status_bar_notification_row.xml is one such
+        // never-configured view — it never gets setCustomBackground/setActualHeight/
+        // setRadius called, so its host layout height is the full row (not the actual
+        // content height) and its corner radii default to the constructor's full-round
+        // value. With the wafer plate now unconditionally painted, that vestigial view
+        // would draw a fully-rounded oversized plate on top of backgroundNormal; the
+        // row's clipBounds clip the plate's bottom rounded portion off, leaving a
+        // flat-bottom card on top of the real one. Match the legacy null-guard so the
+        // dimmed sibling stays inert.
+        if (mBackground == null) {
+            return;
+        }
         if (mClipTopAmount + mClipBottomAmount < getActualHeight() || mExpandAnimationRunning) {
+            // Wafer glass: skip the per-row plate on group children — the parent
+            // summary's plate covers them via its setWaferExtendedBottom region.
+            if (!mIsGroupChild) {
+                final int top = mClipTopAmount;
+                int bottom = getActualHeight() - mClipBottomAmount;
+                if (mWaferExtendedBottom > bottom) {
+                    bottom = mWaferExtendedBottom;
+                }
+                mWaferGlass.setLocalRect(0, top, getWidth(), bottom);
+                mWaferGlass.drawGlassBackdrop(canvas);
+            }
             canvas.save();
             if (!mExpandAnimationRunning) {
                 canvas.clipRect(0, mClipTopAmount, getWidth(),
@@ -280,6 +375,11 @@ public class NotificationBackgroundView extends View implements Dumpable,
     }
 
     public void setTint(int tintColor) {
+        // Wafer glass: layer 0 of notification_material_bg.xml is fully transparent
+        // and the wafer surface is painted in onDraw(), so SRC_ATOP tinting here
+        // is a no-op on the visible card. We still call through to keep the rest
+        // of the legacy state machinery (state colors on layer 1) consistent with
+        // mTintColor.
         Drawable baseLayer = getBaseBackgroundLayer();
         baseLayer.mutate().setTintMode(PorterDuff.Mode.SRC_ATOP);
         baseLayer.setTint(tintColor);
@@ -375,6 +475,11 @@ public class NotificationBackgroundView extends View implements Dumpable,
         mCornerRadii[5] = bottomRoundness;
         mCornerRadii[6] = bottomRoundness;
         mCornerRadii[7] = bottomRoundness;
+        // Forward the per-edge radii through to the wafer glass plate so rows in
+        // the middle of a notification stack render with flat top/bottom corners
+        // and only the outermost rows show the rounded card edges. Collapsing to
+        // a single radius here makes every row look like an isolated pill.
+        mWaferGlass.setCornerRadii(topRoundness, bottomRoundness);
         updateBackgroundRadii();
     }
 

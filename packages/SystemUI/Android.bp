@@ -455,6 +455,7 @@ android_library {
         "SystemUI-shared-utils",
         "SystemUI-statsd",
         "SettingsLib",
+        "wafer-glass",
         "com_android_systemui_flags_lib",
         "//frameworks/libs/systemui:com_android_systemui_shared_flags_lib",
         "androidx.core_core-ktx",

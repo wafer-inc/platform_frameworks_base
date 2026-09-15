@@ -4876,6 +4876,18 @@ public abstract class Context {
     public static final String STATUS_BAR_SERVICE = "statusbar";
 
     /**
+     * Use with {@link #getSystemService(String)} to retrieve a
+     * {@link com.wafer.backdrop.WaferBackdropManager} for streaming live backdrop
+     * buffers of the display contents below the notification shade.
+     *
+     * @see #getSystemService(String)
+     * @see com.wafer.backdrop.WaferBackdropManager
+     * @hide
+     */
+    @SuppressLint("ServiceName")
+    public static final String WAFER_BACKDROP_CAPTURE_SERVICE = "wafer_backdrop";
+
+    /**
      * Use with {@link #getSystemService(String)} to retrieve a {@link
      * android.net.ConnectivityManager} for handling management of
      * network connections.

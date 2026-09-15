@@ -1700,6 +1700,15 @@ public final class SystemServer implements Dumpable {
             wm.onInitReady();
             t.traceEnd();
 
+            // Wafer backdrop capture service — publishes the `wafer_backdrop`
+            // binder. Must come after WMS so WindowManagerInternal is registered;
+            // the service itself waits for PHASE_SYSTEM_SERVICES_READY before
+            // resolving WindowManagerInternal via LocalServices.
+            t.traceBegin("StartWaferBackdropCaptureService");
+            mSystemServiceManager.startService(
+                    com.wafer.backdrop.WaferBackdropCaptureService.class);
+            t.traceEnd();
+
             // Start receiving calls from SensorManager services. Start in a separate thread
             // because it need to connect to SensorManager. This has to start
             // after PHASE_WAIT_FOR_SENSOR_SERVICE is done.

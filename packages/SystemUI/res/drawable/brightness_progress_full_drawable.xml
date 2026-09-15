@@ -22,7 +22,8 @@
         android:height="@dimen/rounded_slider_height">
         <shape>
             <size android:height="@dimen/rounded_slider_height" />
-            <solid android:color="?attr/shadeActive" />
+            <!-- Wafer reskin (Phase 04): active track is white. -->
+            <solid android:color="@*android:color/wafer_white" />
             <corners android:radius="@dimen/rounded_slider_corner_radius"/>
         </shape>
     </item>
@@ -39,9 +40,11 @@
         android:height="@dimen/rounded_slider_icon_size"
         android:width="@dimen/rounded_slider_icon_size"
         android:right="@dimen/rounded_slider_icon_inset">
+        <!-- Wafer reskin (Phase 04): brightness icon sits inside the teal
+             active track, so use wafer_black for contrast. -->
         <com.android.systemui.util.AlphaTintDrawableWrapper
             android:drawable="@drawable/ic_brightness"
-            android:tint="?attr/onShadeActive"
+            android:tint="@*android:color/wafer_black"
         />
     </item>
 </layer-list>
