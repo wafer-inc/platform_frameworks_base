@@ -225,6 +225,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
     private final BackgroundFallback mBackgroundFallback = new BackgroundFallback();
 
     private int mLastTopInset = 0;
+    private boolean mLastImeUnderHiddenStatusBar = false;
     @UnsupportedAppUsage
     private int mLastBottomInset = 0;
     @UnsupportedAppUsage
@@ -1114,6 +1115,11 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
                         ? Insets.NONE
                         : Insets.min(insets.getInsets(compatInsetsTypes), stableBarInsets);
                 mLastTopInset = systemInsets.top;
+                // The IME's client decides whether the status bar shows. When it is hidden, a
+                // full-screen IME window still gets a top inset from the display cutout, and
+                // would paint its status bar color over the client there.
+                mLastImeUnderHiddenStatusBar = isImeWindow
+                        && !insets.isVisible(WindowInsets.Type.statusBars());
                 mLastBottomInset = systemInsets.bottom;
                 mLastRightInset = systemInsets.right;
                 mLastLeftInset = systemInsets.left;
@@ -1171,7 +1177,8 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
                     : statusBarNeedsLeftInset ? mLastLeftInset : 0;
             int statusBarColor = calculateStatusBarColor(appearance);
             updateColorViewInt(mStatusColorViewState, statusBarColor, 0,
-                    mLastTopInset, false /* matchVertical */, statusBarNeedsLeftInset,
+                    mLastImeUnderHiddenStatusBar ? 0 : mLastTopInset,
+                    false /* matchVertical */, statusBarNeedsLeftInset,
                     statusBarSideInset, animate && !disallowAnimate,
                     mForceWindowDrawsBarBackgrounds, requestedVisibleTypes);
         }
